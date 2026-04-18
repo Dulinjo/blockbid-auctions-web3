@@ -3,12 +3,12 @@
  * All blockchain logic lives here so components stay clean.
  */
 import { BrowserProvider, Contract, JsonRpcSigner, formatEther, parseEther } from "ethers";
-import ContractJson from "@/abi/BlockBidAuction.json";
+import abi from "@/abi/BlockBidAuction.json";
 
 export const CONTRACT_ADDRESS = "0xd8b934580fcE35a11B58C6D73aDeE468a2833fa8";
 export const EXPECTED_CHAIN_ID = 11155111; // Sepolia
 export const EXPECTED_NETWORK_NAME = "Sepolia";
-export const ABI = ContractJson.abi;
+export const ABI = abi;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const eth = () => (typeof window !== "undefined" ? (window as any).ethereum : undefined);
