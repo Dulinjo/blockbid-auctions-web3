@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
-import { getAllAuctions, OnChainAuction, shortenAddress } from "@/lib/contract";
+import { getAllAuctions, OnChainAuction, shortenAddress, getPendingReturns, withdraw, parseTxError } from "@/lib/contract";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Wallet, Gavel, Trophy, Clock, Plus, AlertTriangle, RefreshCw } from "lucide-react";
+import { Wallet, Gavel, Trophy, Clock, Plus, AlertTriangle, RefreshCw, Download, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Auction } from "@/lib/types";
 import placeholder from "@/assets/auction-1.jpg";
+import { toast } from "sonner";
 
 const toUiAuction = (a: OnChainAuction): Auction => ({
   id: String(a.id),
@@ -29,19 +30,40 @@ const Dashboard = () => {
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
   const [auctions, setAuctions] = useState<OnChainAuction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState("0");
+  const [withdrawing, setWithdrawing] = useState(false);
 
   const load = async () => {
+    if (!wallet) return;
     setLoading(true);
     try {
-      const list = await getAllAuctions();
+      const [list, p] = await Promise.all([
+        getAllAuctions(),
+        getPendingReturns(wallet.address).catch(() => "0"),
+      ]);
       setAuctions(list);
+      setPending(p);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleWithdraw = async () => {
+    setWithdrawing(true);
+    try {
+      const { txHash } = await withdraw();
+      toast.success("Withdraw successful", { description: `Tx: ${txHash.slice(0, 10)}...` });
+      await load();
+    } catch (e) {
+      toast.error("Withdraw failed", { description: parseTxError(e) });
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   useEffect(() => {
     if (wallet) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
 
   if (!wallet) {
