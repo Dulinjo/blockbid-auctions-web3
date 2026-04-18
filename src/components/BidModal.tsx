@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWallet } from "@/contexts/WalletContext";
-import { placeBid, parseTxError } from "@/lib/contract";
+import { placeBid, parseTxError, getCurrentMinBid } from "@/lib/contract";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
 
@@ -22,16 +22,31 @@ type Step = "form" | "pending" | "success" | "error";
 export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenChange, onSuccess }: Props) => {
   const { wallet } = useWallet();
   const baseline = currentBid > 0 ? currentBid : startingPrice;
-  const minBid = (baseline + 0.001).toFixed(4);
-  const [amount, setAmount] = useState(minBid);
+  const [minBid, setMinBid] = useState(baseline.toString());
+  const [amount, setAmount] = useState(baseline.toString());
   const [step, setStep] = useState<Step>("form");
   const [tx, setTx] = useState<string>("");
   const [error, setError] = useState<string>("");
 
+  useEffect(() => {
+    if (!open) return;
+    getCurrentMinBid(auctionId)
+      .then((m) => {
+        setMinBid(m);
+        setAmount(m);
+      })
+      .catch(() => {
+        const fallback = (baseline + 0.0001).toString();
+        setMinBid(fallback);
+        setAmount(fallback);
+      });
+  }, [open, auctionId, baseline]);
+
   const submit = async () => {
     const value = parseFloat(amount);
-    if (isNaN(value) || value <= baseline) {
-      toast.error(`Bid must exceed ${baseline} ETH`);
+    const min = parseFloat(minBid);
+    if (isNaN(value) || value < min) {
+      toast.error(`Bid must be at least ${minBid} ETH`);
       return;
     }
     if (!wallet) return;
@@ -51,7 +66,6 @@ export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenCha
     setStep("form");
     setError("");
     setTx("");
-    setAmount(minBid);
     onOpenChange(false);
   };
 
@@ -85,7 +99,7 @@ export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenCha
               <Input
                 id="bid"
                 type="number"
-                step="0.001"
+                step="0.0001"
                 min={minBid}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}

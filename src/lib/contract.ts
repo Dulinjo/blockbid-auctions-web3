@@ -3,12 +3,12 @@
  * All blockchain logic lives here so components stay clean.
  */
 import { BrowserProvider, Contract, JsonRpcSigner, formatEther, parseEther } from "ethers";
-import ContractJson from "@/abi/BlockBidAuction.json";
+import abi from "@/abi/BlockBidAuction.json";
 
 export const CONTRACT_ADDRESS = "0xd8b934580fcE35a11B58C6D73aDeE468a2833fa8";
 export const EXPECTED_CHAIN_ID = 11155111; // Sepolia
 export const EXPECTED_NETWORK_NAME = "Sepolia";
-export const ABI = ContractJson.abi;
+export const ABI = abi;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const eth = () => (typeof window !== "undefined" ? (window as any).ethereum : undefined);
@@ -188,7 +188,7 @@ export const getAllAuctions = async (): Promise<OnChainAuction[]> => {
 export interface CreateAuctionInput {
   title: string;
   startingPriceEth: string; // "0.05"
-  durationSeconds: number;
+  durationMinutes: number;
 }
 
 export const createAuction = async (
@@ -198,7 +198,7 @@ export const createAuction = async (
   const tx = await c.createAuction(
     input.title,
     parseEther(input.startingPriceEth),
-    BigInt(input.durationSeconds)
+    BigInt(input.durationMinutes)
   );
   await tx.wait();
   return { txHash: tx.hash };
@@ -219,6 +219,19 @@ export const endAuction = async (auctionId: number): Promise<{ txHash: string }>
   const tx = await c.endAuction(auctionId);
   await tx.wait();
   return { txHash: tx.hash };
+};
+
+export const withdraw = async (): Promise<{ txHash: string }> => {
+  const c = await getContract(true);
+  const tx = await c.withdraw();
+  await tx.wait();
+  return { txHash: tx.hash };
+};
+
+export const getPendingReturns = async (address: string): Promise<string> => {
+  const c = await getContract(false);
+  const v: bigint = await c.pendingReturns(address);
+  return formatEther(v);
 };
 
 // ---- Helpers ----

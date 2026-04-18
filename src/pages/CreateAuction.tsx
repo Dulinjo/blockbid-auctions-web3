@@ -35,11 +35,11 @@ const CreateAuction = () => {
     }
     setStep("pending");
     try {
-      const durationSeconds = Math.floor(parseFloat(form.durationHours) * 3600);
+      const durationMinutes = Math.max(1, Math.floor(parseFloat(form.durationHours) * 60));
       const { txHash } = await createAuction({
         title: form.title.trim(),
         startingPriceEth: form.startingPrice,
-        durationSeconds,
+        durationMinutes,
       });
       setTx(txHash);
       setStep("success");

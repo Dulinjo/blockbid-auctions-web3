@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
-import { getAllAuctions, OnChainAuction, shortenAddress } from "@/lib/contract";
+import { getAllAuctions, OnChainAuction, shortenAddress, getPendingReturns, withdraw, parseTxError } from "@/lib/contract";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Wallet, Gavel, Trophy, Clock, Plus, AlertTriangle, RefreshCw } from "lucide-react";
+import { Wallet, Gavel, Trophy, Clock, Plus, AlertTriangle, RefreshCw, Download, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Auction } from "@/lib/types";
 import placeholder from "@/assets/auction-1.jpg";
+import { toast } from "sonner";
 
 const toUiAuction = (a: OnChainAuction): Auction => ({
   id: String(a.id),
@@ -29,19 +30,40 @@ const Dashboard = () => {
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
   const [auctions, setAuctions] = useState<OnChainAuction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState("0");
+  const [withdrawing, setWithdrawing] = useState(false);
 
   const load = async () => {
+    if (!wallet) return;
     setLoading(true);
     try {
-      const list = await getAllAuctions();
+      const [list, p] = await Promise.all([
+        getAllAuctions(),
+        getPendingReturns(wallet.address).catch(() => "0"),
+      ]);
       setAuctions(list);
+      setPending(p);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleWithdraw = async () => {
+    setWithdrawing(true);
+    try {
+      const { txHash } = await withdraw();
+      toast.success("Withdraw successful", { description: `Tx: ${txHash.slice(0, 10)}...` });
+      await load();
+    } catch (e) {
+      toast.error("Withdraw failed", { description: parseTxError(e) });
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   useEffect(() => {
     if (wallet) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
 
   if (!wallet) {
@@ -110,6 +132,25 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+
+        {parseFloat(pending) > 0 && (
+          <div className="mb-8 rounded-2xl border border-success/40 bg-success/5 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-full bg-success/15 flex items-center justify-center shrink-0">
+                <Download className="h-5 w-5 text-success" />
+              </div>
+              <div>
+                <div className="font-semibold">You have funds to withdraw</div>
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-mono text-success">{pending} ETH</span> from outbid auctions is available to claim.
+                </div>
+              </div>
+            </div>
+            <Button onClick={handleWithdraw} disabled={withdrawing} className="bg-gradient-primary text-primary-foreground">
+              {withdrawing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Withdrawing...</> : <><Download className="mr-2 h-4 w-4" /> Withdraw {pending} ETH</>}
+            </Button>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
           {stats.map((s) => (
