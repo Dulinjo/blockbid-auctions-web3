@@ -1,9 +1,17 @@
 import { Layout } from "@/components/Layout";
-import { CONTRACT_INFO } from "@/lib/mockData";
+import { CONTRACT_ADDRESS, EXPECTED_CHAIN_ID, EXPECTED_NETWORK_NAME } from "@/lib/contract";
 import { FileCode2, Activity, ExternalLink, Copy, Check, Database } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+
+const CONTRACT_INFO = {
+  address: CONTRACT_ADDRESS,
+  network: `${EXPECTED_NETWORK_NAME} Testnet`,
+  chainId: EXPECTED_CHAIN_ID,
+  deployedAt: "—",
+  version: "1.0.0",
+};
 
 const recentTx = [
   { hash: "0xa1b2c3d4e5f6789012345678abcdef0123456789abcdef0123456789abcdef01", method: "placeBid", time: "2m ago", status: "success" },
@@ -126,9 +134,9 @@ const ContractInfo = () => {
 
         {/* Integration note */}
         <div className="rounded-2xl border border-dashed border-border bg-card/40 p-6 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground mb-1.5">Integration ready</p>
+          <p className="font-medium text-foreground mb-1.5">Live integration</p>
           <p>
-            Frontend service layer (<code className="font-mono text-xs px-1.5 py-0.5 rounded bg-secondary text-primary-glow">src/services/blockchain.ts</code>) is structured to drop in <code className="font-mono text-xs px-1.5 py-0.5 rounded bg-secondary text-primary-glow">ethers.js</code> or <code className="font-mono text-xs px-1.5 py-0.5 rounded bg-secondary text-primary-glow">viem</code>. Just provide the deployed contract ABI and address.
+            The frontend reads and writes through <code className="font-mono text-xs px-1.5 py-0.5 rounded bg-secondary text-primary-glow">src/lib/contract.ts</code> using <code className="font-mono text-xs px-1.5 py-0.5 rounded bg-secondary text-primary-glow">ethers.js v6</code> and the ABI in <code className="font-mono text-xs px-1.5 py-0.5 rounded bg-secondary text-primary-glow">src/abi/BlockBidAuction.json</code>.
           </p>
         </div>
       </div>
