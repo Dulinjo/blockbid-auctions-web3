@@ -133,7 +133,25 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+        {parseFloat(pending) > 0 && (
+          <div className="mb-8 rounded-2xl border border-success/40 bg-success/5 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-full bg-success/15 flex items-center justify-center shrink-0">
+                <Download className="h-5 w-5 text-success" />
+              </div>
+              <div>
+                <div className="font-semibold">You have funds to withdraw</div>
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-mono text-success">{pending} ETH</span> from outbid auctions is available to claim.
+                </div>
+              </div>
+            </div>
+            <Button onClick={handleWithdraw} disabled={withdrawing} className="bg-gradient-primary text-primary-foreground">
+              {withdrawing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Withdrawing...</> : <><Download className="mr-2 h-4 w-4" /> Withdraw {pending} ETH</>}
+            </Button>
+          </div>
+        )}
+
           {stats.map((s) => (
             <div key={s.label} className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center justify-between">
