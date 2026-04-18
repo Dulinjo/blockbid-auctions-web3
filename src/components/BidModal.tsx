@@ -3,67 +3,66 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Auction } from "@/lib/types";
 import { useWallet } from "@/contexts/WalletContext";
-import { placeBid } from "@/services/blockchain";
+import { placeBid, parseTxError } from "@/lib/contract";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
 
 interface Props {
-  auction: Auction;
+  auctionId: number;
+  currentBid: number;
+  startingPrice: number;
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onSuccess: (a: Auction) => void;
+  onSuccess: () => void;
 }
 
-type Step = "form" | "confirming" | "pending" | "success" | "error";
+type Step = "form" | "pending" | "success" | "error";
 
-export const BidModal = ({ auction, open, onOpenChange, onSuccess }: Props) => {
+export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenChange, onSuccess }: Props) => {
   const { wallet } = useWallet();
-  const [amount, setAmount] = useState((auction.highestBid + 0.05).toFixed(2));
+  const baseline = currentBid > 0 ? currentBid : startingPrice;
+  const minBid = (baseline + 0.001).toFixed(4);
+  const [amount, setAmount] = useState(minBid);
   const [step, setStep] = useState<Step>("form");
   const [tx, setTx] = useState<string>("");
   const [error, setError] = useState<string>("");
 
-  const minBid = (auction.highestBid + 0.01).toFixed(2);
-
   const submit = async () => {
     const value = parseFloat(amount);
-    if (isNaN(value) || value <= auction.highestBid) {
-      toast.error(`Bid must exceed ${auction.highestBid} ETH`);
+    if (isNaN(value) || value <= baseline) {
+      toast.error(`Bid must exceed ${baseline} ETH`);
       return;
     }
     if (!wallet) return;
-    setStep("confirming");
-    await new Promise((r) => setTimeout(r, 800));
     setStep("pending");
     try {
-      const { tx: hash, auction: updated } = await placeBid(auction.id, value, wallet.address);
-      setTx(hash);
+      const { txHash } = await placeBid(auctionId, amount);
+      setTx(txHash);
       setStep("success");
-      onSuccess(updated);
+      onSuccess();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Transaction failed");
+      setError(parseTxError(e));
       setStep("error");
     }
   };
 
-  const reset = () => {
+  const close = () => {
     setStep("form");
     setError("");
     setTx("");
+    setAmount(minBid);
     onOpenChange(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => (!v ? reset() : onOpenChange(v))}>
+    <Dialog open={open} onOpenChange={(v) => (!v ? close() : onOpenChange(v))}>
       <DialogContent className="bg-card border-border">
         <DialogHeader>
           <DialogTitle>Place Bid</DialogTitle>
           <DialogDescription>
             {step === "form" && "Enter your bid amount. The transaction will be confirmed via MetaMask."}
-            {step === "confirming" && "Awaiting MetaMask confirmation..."}
-            {step === "pending" && "Broadcasting to network..."}
+            {step === "pending" && "Confirm in MetaMask, then waiting for the network..."}
             {step === "success" && "Your bid is now recorded on-chain."}
             {step === "error" && "Something went wrong with the transaction."}
           </DialogDescription>
@@ -74,7 +73,7 @@ export const BidModal = ({ auction, open, onOpenChange, onSuccess }: Props) => {
             <div className="rounded-lg bg-secondary/60 p-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Current highest bid</span>
-                <span className="font-mono font-semibold">{auction.highestBid} ETH</span>
+                <span className="font-mono font-semibold">{baseline} ETH</span>
               </div>
               <div className="flex justify-between mt-1">
                 <span className="text-muted-foreground">Minimum next bid</span>
@@ -86,7 +85,7 @@ export const BidModal = ({ auction, open, onOpenChange, onSuccess }: Props) => {
               <Input
                 id="bid"
                 type="number"
-                step="0.01"
+                step="0.001"
                 min={minBid}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -95,7 +94,7 @@ export const BidModal = ({ auction, open, onOpenChange, onSuccess }: Props) => {
             </div>
             <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning flex gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>This action requires a blockchain transaction. Gas fees may apply.</span>
+              <span>Sends a real on-chain transaction on Sepolia. Gas fees apply.</span>
             </div>
             <Button onClick={submit} className="w-full bg-gradient-primary text-primary-foreground font-semibold h-11">
               Confirm Bid
@@ -103,15 +102,13 @@ export const BidModal = ({ auction, open, onOpenChange, onSuccess }: Props) => {
           </div>
         )}
 
-        {(step === "confirming" || step === "pending") && (
+        {step === "pending" && (
           <div className="py-10 flex flex-col items-center gap-4">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             <div className="text-center">
-              <div className="font-medium">
-                {step === "confirming" ? "Confirm in MetaMask" : "Transaction pending"}
-              </div>
+              <div className="font-medium">Transaction in progress</div>
               <div className="text-xs text-muted-foreground mt-1 font-mono">
-                {amount} ETH bid on {auction.id}
+                {amount} ETH bid on auction #{auctionId}
               </div>
             </div>
           </div>
@@ -127,13 +124,14 @@ export const BidModal = ({ auction, open, onOpenChange, onSuccess }: Props) => {
               <div className="text-xs text-muted-foreground">Your bid of {amount} ETH is on-chain.</div>
             </div>
             <a
-              href="#"
-              onClick={(e) => e.preventDefault()}
+              href={`https://sepolia.etherscan.io/tx/${tx}`}
+              target="_blank"
+              rel="noreferrer"
               className="text-xs font-mono text-primary hover:text-primary-glow flex items-center gap-1"
             >
               {tx.slice(0, 14)}...{tx.slice(-8)} <ExternalLink className="h-3 w-3" />
             </a>
-            <Button onClick={reset} variant="outline" className="mt-2 w-full">
+            <Button onClick={close} variant="outline" className="mt-2 w-full">
               Close
             </Button>
           </div>

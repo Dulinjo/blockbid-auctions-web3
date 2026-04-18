@@ -2,69 +2,88 @@ import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Auction, AuctionStatus } from "@/lib/types";
-import { fetchAuctions } from "@/services/blockchain";
+import { getAllAuctions, OnChainAuction, CONTRACT_ADDRESS } from "@/lib/contract";
 import { Input } from "@/components/ui/input";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Search, SlidersHorizontal, RefreshCw, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import placeholder from "@/assets/auction-1.jpg";
+
+const toUiAuction = (a: OnChainAuction): Auction => ({
+  id: String(a.id),
+  title: a.title || `Auction #${a.id}`,
+  description: "On-chain auction managed by the BlockBid smart contract.",
+  category: "On-chain",
+  image: placeholder,
+  seller: a.seller,
+  startingPrice: parseFloat(a.startingPrice),
+  highestBid: parseFloat(a.highestBid),
+  highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
+  endsAt: a.endTime,
+  status: a.ended ? "finalized" : a.active ? "active" : "ended",
+  bidCount: 0,
+});
 
 const Marketplace = () => {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [sort, setSort] = useState<string>("ending");
 
-  useEffect(() => {
-    fetchAuctions().then((a) => {
-      setAuctions(a);
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await getAllAuctions();
+      setAuctions(list.map(toUiAuction));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load auctions");
+    } finally {
       setLoading(false);
-    });
-  }, []);
+    }
+  };
 
-  const categories = useMemo(
-    () => ["all", ...Array.from(new Set(auctions.map((a) => a.category)))],
-    [auctions]
-  );
+  useEffect(() => {
+    load();
+  }, []);
 
   const filtered = useMemo(() => {
     let list = [...auctions];
-    if (query) list = list.filter((a) => a.title.toLowerCase().includes(query.toLowerCase()));
-    if (category !== "all") list = list.filter((a) => a.category === category);
+    if (query) list = list.filter((a) => a.title.toLowerCase().includes(query.toLowerCase()) || a.id.includes(query));
     if (status !== "all") list = list.filter((a) => a.status === (status as AuctionStatus));
     if (sort === "ending") list.sort((a, b) => a.endsAt - b.endsAt);
     if (sort === "price-high") list.sort((a, b) => b.highestBid - a.highestBid);
     if (sort === "price-low") list.sort((a, b) => a.highestBid - b.highestBid);
     return list;
-  }, [auctions, query, category, status, sort]);
+  }, [auctions, query, status, sort]);
 
   return (
     <Layout>
       <section className="container py-12">
-        <div className="mb-10 max-w-2xl">
-          <h1 className="text-4xl md:text-5xl font-bold">Marketplace</h1>
-          <p className="text-muted-foreground mt-2">Browse live auctions backed by on-chain smart contracts.</p>
+        <div className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div className="max-w-2xl">
+            <h1 className="text-4xl md:text-5xl font-bold">Marketplace</h1>
+            <p className="text-muted-foreground mt-2">Live auctions read directly from the BlockBid smart contract.</p>
+            <div className="mt-2 text-xs font-mono text-muted-foreground break-all">Contract: {CONTRACT_ADDRESS}</div>
+          </div>
+          <Button variant="outline" onClick={load} disabled={loading} className="self-start">
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </Button>
         </div>
 
         <div className="rounded-2xl border border-border bg-card/40 backdrop-blur p-4 mb-8 flex flex-col md:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search auctions..."
+              placeholder="Search by title or ID..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="pl-9 bg-background/60 border-border"
             />
           </div>
           <div className="flex gap-3 flex-wrap">
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="w-[160px] bg-background/60"><SelectValue placeholder="Category" /></SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c} value={c}>{c === "all" ? "All categories" : c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger className="w-[140px] bg-background/60"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
@@ -87,6 +106,16 @@ const Marketplace = () => {
           </div>
         </div>
 
+        {error && (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 mb-6 flex items-start gap-3 text-sm">
+            <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
+            <div>
+              <div className="font-medium text-destructive">Failed to load auctions</div>
+              <div className="text-xs text-muted-foreground mt-1">{error}</div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -95,7 +124,10 @@ const Marketplace = () => {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24 rounded-2xl border border-dashed border-border">
-            <p className="text-muted-foreground">No auctions match your filters.</p>
+            <p className="text-muted-foreground">No auctions found on-chain.</p>
+            <Button asChild className="mt-4 bg-gradient-primary text-primary-foreground">
+              <a href="/create">Create the first auction</a>
+            </Button>
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">

@@ -6,15 +6,33 @@ import { ArrowRight, ShieldCheck, Wallet, FileCode2, Activity, Sparkles } from "
 import heroBg from "@/assets/hero-bg.jpg";
 import { useEffect, useState } from "react";
 import { Auction } from "@/lib/types";
-import { fetchAuctions } from "@/services/blockchain";
+import { getAllAuctions, OnChainAuction } from "@/lib/contract";
 import { AuctionCard } from "@/components/AuctionCard";
+import placeholder from "@/assets/auction-1.jpg";
+
+const toUiAuction = (a: OnChainAuction): Auction => ({
+  id: String(a.id),
+  title: a.title || `Auction #${a.id}`,
+  description: "On-chain auction managed by the BlockBid smart contract.",
+  category: "On-chain",
+  image: placeholder,
+  seller: a.seller,
+  startingPrice: parseFloat(a.startingPrice),
+  highestBid: parseFloat(a.highestBid),
+  highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
+  endsAt: a.endTime,
+  status: a.ended ? "finalized" : a.active ? "active" : "ended",
+  bidCount: 0,
+});
 
 const Index = () => {
   const { wallet, connect } = useWallet();
   const [auctions, setAuctions] = useState<Auction[]>([]);
 
   useEffect(() => {
-    fetchAuctions().then((a) => setAuctions(a.slice(0, 3)));
+    getAllAuctions()
+      .then((a) => setAuctions(a.slice(0, 3).map(toUiAuction)))
+      .catch(() => setAuctions([]));
   }, []);
 
   return (
