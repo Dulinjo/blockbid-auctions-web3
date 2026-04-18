@@ -221,6 +221,19 @@ export const endAuction = async (auctionId: number): Promise<{ txHash: string }>
   return { txHash: tx.hash };
 };
 
+export const withdraw = async (): Promise<{ txHash: string }> => {
+  const c = await getContract(true);
+  const tx = await c.withdraw();
+  await tx.wait();
+  return { txHash: tx.hash };
+};
+
+export const getPendingReturns = async (address: string): Promise<string> => {
+  const c = await getContract(false);
+  const v: bigint = await c.pendingReturns(address);
+  return formatEther(v);
+};
+
 // ---- Helpers ----
 
 export const shortenAddress = (addr: string, chars = 4): string => {
