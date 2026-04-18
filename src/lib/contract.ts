@@ -188,7 +188,7 @@ export const getAllAuctions = async (): Promise<OnChainAuction[]> => {
 export interface CreateAuctionInput {
   title: string;
   startingPriceEth: string; // "0.05"
-  durationSeconds: number;
+  durationMinutes: number;
 }
 
 export const createAuction = async (
@@ -198,7 +198,7 @@ export const createAuction = async (
   const tx = await c.createAuction(
     input.title,
     parseEther(input.startingPriceEth),
-    BigInt(input.durationSeconds)
+    BigInt(input.durationMinutes)
   );
   await tx.wait();
   return { txHash: tx.hash };
