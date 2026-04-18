@@ -1,21 +1,48 @@
 import { useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
-import { Auction } from "@/lib/types";
-import { fetchAuctions } from "@/services/blockchain";
+import { getAllAuctions, OnChainAuction, shortenAddress } from "@/lib/contract";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Wallet, Gavel, Trophy, Clock, Plus, ExternalLink } from "lucide-react";
+import { Wallet, Gavel, Trophy, Clock, Plus, AlertTriangle, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
+import { Auction } from "@/lib/types";
+import placeholder from "@/assets/auction-1.jpg";
+
+const toUiAuction = (a: OnChainAuction): Auction => ({
+  id: String(a.id),
+  title: a.title || `Auction #${a.id}`,
+  description: "On-chain auction managed by the BlockBid smart contract.",
+  category: "On-chain",
+  image: placeholder,
+  seller: a.seller,
+  startingPrice: parseFloat(a.startingPrice),
+  highestBid: parseFloat(a.highestBid),
+  highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
+  endsAt: a.endTime,
+  status: a.ended ? "finalized" : a.active ? "active" : "ended",
+  bidCount: 0,
+});
 
 const Dashboard = () => {
-  const { wallet, connect } = useWallet();
-  const [auctions, setAuctions] = useState<Auction[]>([]);
+  const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
+  const [auctions, setAuctions] = useState<OnChainAuction[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const list = await getAllAuctions();
+      setAuctions(list);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetchAuctions().then(setAuctions);
-  }, []);
+    if (wallet) load();
+  }, [wallet]);
 
   if (!wallet) {
     return (
@@ -36,43 +63,54 @@ const Dashboard = () => {
     );
   }
 
-  // Mock attribution: pretend the connected wallet owns first 2 + bid on 1
-  const myCreated = auctions.slice(0, 2);
-  const myBids = auctions.slice(1, 4);
-  const myWon = auctions.filter((a) => a.status === "ended" || a.status === "finalized").slice(0, 1);
+  const me = wallet.address.toLowerCase();
+  const myCreated = auctions.filter((a) => a.seller.toLowerCase() === me);
+  const myBids = auctions.filter((a) => a.highestBidder.toLowerCase() === me);
+  const myWon = auctions.filter(
+    (a) => a.ended && a.highestBidder.toLowerCase() === me
+  );
+  const ended = auctions.filter((a) => !a.active && a.seller.toLowerCase() === me);
 
   const stats = [
     { label: "Auctions created", value: myCreated.length, icon: Gavel, color: "text-primary-glow" },
-    { label: "Active bids", value: myBids.filter((a) => a.status === "active").length, icon: Clock, color: "text-accent" },
+    { label: "Leading bids", value: myBids.filter((a) => a.active).length, icon: Clock, color: "text-accent" },
     { label: "Won auctions", value: myWon.length, icon: Trophy, color: "text-warning" },
-    { label: "Pending claims", value: 1, icon: ExternalLink, color: "text-success" },
+    { label: "Pending finalize", value: ended.filter((a) => !a.ended).length, icon: AlertTriangle, color: "text-success" },
   ];
 
   return (
     <Layout>
       <div className="container py-12">
-        {/* Wallet overview */}
         <div className="rounded-2xl border border-border bg-gradient-card p-6 md:p-8 mb-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-xs uppercase tracking-wider text-muted-foreground">Connected wallet</div>
-              <div className="font-mono text-lg md:text-xl mt-1 break-all">{wallet.address}</div>
+              <div className="font-mono text-lg md:text-xl mt-1 break-all">{shortenAddress(wallet.address, 8)}</div>
               <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-success animate-pulse-glow" />
+                  <span className={`h-2 w-2 rounded-full ${correctNetwork ? "bg-success animate-pulse-glow" : "bg-warning"}`} />
                   {wallet.network}
                 </span>
                 <span>•</span>
                 <span className="font-mono">{wallet.balance} ETH</span>
               </div>
+              {!correctNetwork && (
+                <Button size="sm" variant="outline" onClick={switchNetwork} className="mt-3 border-warning/40 text-warning hover:bg-warning/10">
+                  <AlertTriangle className="mr-2 h-3 w-3" /> Switch to Sepolia
+                </Button>
+              )}
             </div>
-            <Button asChild className="bg-gradient-primary text-primary-foreground">
-              <Link to="/create"><Plus className="mr-1.5 h-4 w-4" /> New Auction</Link>
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={load} disabled={loading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              <Button asChild className="bg-gradient-primary text-primary-foreground">
+                <Link to="/create"><Plus className="mr-1.5 h-4 w-4" /> New Auction</Link>
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
           {stats.map((s) => (
             <div key={s.label} className="rounded-xl border border-border bg-card p-5">
@@ -85,7 +123,6 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* Tabs */}
         <Tabs defaultValue="created">
           <TabsList className="bg-card border border-border">
             <TabsTrigger value="created">My Auctions</TabsTrigger>
@@ -97,28 +134,30 @@ const Dashboard = () => {
           <TabsContent value="created" className="mt-6">
             {myCreated.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myCreated.map((a) => <AuctionCard key={a.id} auction={a} />)}
+                {myCreated.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
               </div>
             ) : <EmptyState text="You haven't created any auctions yet." />}
           </TabsContent>
           <TabsContent value="bids" className="mt-6">
             {myBids.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myBids.map((a) => <AuctionCard key={a.id} auction={a} />)}
+                {myBids.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
               </div>
-            ) : <EmptyState text="No active bids." />}
+            ) : <EmptyState text="You're not the highest bidder on any auctions." />}
           </TabsContent>
           <TabsContent value="won" className="mt-6">
             {myWon.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myWon.map((a) => <AuctionCard key={a.id} auction={a} />)}
+                {myWon.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
               </div>
             ) : <EmptyState text="No won auctions yet." />}
           </TabsContent>
           <TabsContent value="ended" className="mt-6">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {auctions.filter(a => a.status === "ended").map((a) => <AuctionCard key={a.id} auction={a} />)}
-            </div>
+            {ended.length ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {ended.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+              </div>
+            ) : <EmptyState text="None of your auctions have ended." />}
           </TabsContent>
         </Tabs>
       </div>
