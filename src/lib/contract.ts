@@ -155,19 +155,20 @@ export async function switchToSepolia() {
 }
 
 export async function getContract(withSigner = false) {
-  // Writes require MetaMask + Sepolia. Reads use a public RPC fallback so
-  // visitors without a wallet (or on a wrong network) can still browse.
+  // Writes require an active wallet (any EVM connector) on Sepolia.
+  // Reads use the active wallet's provider when on Sepolia, else the public RPC fallback.
   if (withSigner) {
     await ensureSepoliaNetwork();
     const provider = await getProvider();
     const signer = await provider.getSigner();
     return new Contract(CONTRACT_ADDRESS, abi, signer);
   }
-  if (window.ethereum) {
+  const eip = getWriteEip1193();
+  if (eip) {
     try {
-      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      const chainId = await eip.request({ method: "eth_chainId" });
       if (chainId === SEPOLIA_CHAIN_ID) {
-        const provider = new BrowserProvider(window.ethereum);
+        const provider = new BrowserProvider(eip);
         return new Contract(CONTRACT_ADDRESS, abi, provider);
       }
     } catch {
