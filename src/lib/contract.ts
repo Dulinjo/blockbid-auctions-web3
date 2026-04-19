@@ -70,9 +70,15 @@ export function isMetaMaskInstalled(): boolean {
   return Boolean(window.ethereum);
 }
 
+/** True when any EVM wallet (injected or wagmi-connected) is available for writes. */
+export function hasAnyWallet(): boolean {
+  return Boolean(getWriteEip1193());
+}
+
 export async function getProvider() {
-  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
-  return new BrowserProvider(window.ethereum);
+  const eip = getWriteEip1193();
+  if (!eip) throw new Error("Wallet nije povezan.");
+  return new BrowserProvider(eip);
 }
 
 export async function getSigner() {
