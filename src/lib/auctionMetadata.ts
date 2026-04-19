@@ -103,6 +103,11 @@ export function getAllAuctionMetadata(): Record<number, AuctionMetadata> {
  */
 export async function refreshAuctionMetadata(): Promise<Record<number, AuctionMetadata>> {
   try {
+    // One-time migration: push any legacy localStorage entries (data URLs
+    // from before Cloud was enabled) to the cloud table so other devices
+    // and guests can see them too.
+    await migrateLegacyLocalEntries();
+
     const { data, error } = await supabase
       .from("auction_metadata")
       .select("*");
@@ -120,6 +125,49 @@ export async function refreshAuctionMetadata(): Promise<Record<number, AuctionMe
     // eslint-disable-next-line no-console
     console.warn("[auctionMetadata] refresh failed, using cached data", e);
     return getAllAuctionMetadata();
+  }
+}
+
+const LEGACY_KEY = "blockbid_auction_metadata_v1";
+const MIGRATION_FLAG = "blockbid_auction_metadata_migrated_v1";
+
+async function migrateLegacyLocalEntries() {
+  if (typeof window === "undefined") return;
+  if (localStorage.getItem(MIGRATION_FLAG)) return;
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY);
+    if (!raw) {
+      localStorage.setItem(MIGRATION_FLAG, "1");
+      return;
+    }
+    const parsed = JSON.parse(raw) as Store;
+    const rows = Object.values(parsed)
+      .filter((m) => m && Number.isInteger(m.auctionId) && m.auctionId > 0)
+      .map((m) => ({
+        auction_id: m.auctionId,
+        // We intentionally drop massive data: URLs that won't fit in a
+        // text column comfortably. Remote URLs (AI / Cloud) are kept.
+        image_url:
+          m.imageUrl && !m.imageUrl.startsWith("data:") ? m.imageUrl : null,
+        source_type: m.sourceType ?? null,
+        title: m.title ?? null,
+        description: m.description ?? null,
+        category: m.category ?? null,
+        prompt: m.prompt ?? null,
+        file_name: m.fileName ?? null,
+      }));
+    if (rows.length > 0) {
+      const { error } = await supabase
+        .from("auction_metadata")
+        .upsert(rows, { onConflict: "auction_id" });
+      if (error) throw error;
+      // eslint-disable-next-line no-console
+      console.info("[auctionMetadata] migrated", rows.length, "legacy entries to Cloud");
+    }
+    localStorage.setItem(MIGRATION_FLAG, "1");
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[auctionMetadata] legacy migration failed", e);
   }
 }
 
