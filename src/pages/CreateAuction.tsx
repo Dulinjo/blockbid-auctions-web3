@@ -9,8 +9,9 @@ import { useWallet } from "@/contexts/WalletContext";
 import { createAuction, classifyTxError } from "@/lib/contract";
 import { debugBus } from "@/components/TxDebugPanel";
 import { useNavigate } from "react-router-dom";
-import { Wallet, Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, AlertTriangle } from "lucide-react";
+import { Wallet, Loader2, CheckCircle2, AlertCircle, ExternalLink, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { AuctionImageInput, type AuctionImageState } from "@/components/AuctionImageInput";
 
 const CreateAuction = () => {
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
