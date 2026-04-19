@@ -126,7 +126,6 @@ type AuctionSnapshot = {
 
 function snapshotFromOnchain(list: OnChainAuction[]): AuctionSnapshot[] {
   const meta = getAllAuctionMetadata();
-  const metaById = new Map(meta.map((m) => [m.auctionId, m]));
   return list
     .map<AuctionSnapshot>((a) => ({
       id: a.id,
@@ -135,7 +134,7 @@ function snapshotFromOnchain(list: OnChainAuction[]): AuctionSnapshot[] {
       endsAtMs: a.endsAtMs,
       highestBidEth: a.highestBidEth,
       startingBidEth: a.startingBidEth,
-      hasImage: !!metaById.get(a.id)?.imageUrl,
+      hasImage: !!meta[a.id]?.imageUrl,
       seller: a.seller,
     }))
     .sort((a, b) => {
