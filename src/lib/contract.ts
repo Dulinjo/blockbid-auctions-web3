@@ -34,6 +34,24 @@ declare global {
   }
 }
 
+/**
+ * EIP-1193 provider used for writes. Defaults to window.ethereum (MetaMask)
+ * but can be overridden by the wallet layer (wagmi connector, Coinbase,
+ * WalletConnect, Rabby, etc.).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _activeWriteProvider: any | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setActiveWalletProvider(provider: any | null) {
+  _activeWriteProvider = provider;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getWriteEip1193(): any | null {
+  if (_activeWriteProvider) return _activeWriteProvider;
+  if (typeof window !== "undefined" && window.ethereum) return window.ethereum;
+  return null;
+}
+
 export function shortAddress(address?: string, chars = 4) {
   if (!address) return "";
   return `${address.slice(0, 2 + chars)}...${address.slice(-chars)}`;
