@@ -156,10 +156,13 @@ export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenCha
               href={`https://sepolia.etherscan.io/tx/${tx}`}
               target="_blank"
               rel="noreferrer"
-              className="text-xs font-mono text-primary hover:text-primary-glow flex items-center gap-1"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 hover:text-primary-glow transition-colors"
             >
-              {tx.slice(0, 14)}...{tx.slice(-8)} <ExternalLink className="h-3 w-3" />
+              <ExternalLink className="h-3.5 w-3.5" /> View Transaction on Etherscan
             </a>
+            <span className="text-[11px] font-mono text-muted-foreground">
+              {tx.slice(0, 14)}…{tx.slice(-8)}
+            </span>
             <Button onClick={close} variant="outline" className="mt-2 w-full">
               Close
             </Button>

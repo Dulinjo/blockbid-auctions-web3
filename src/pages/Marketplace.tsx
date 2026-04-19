@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Search, SlidersHorizontal, RefreshCw, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { EtherscanLink } from "@/components/EtherscanLink";
 import placeholder from "@/assets/auction-1.jpg";
 
 const toUiAuction = (
@@ -98,13 +99,17 @@ const Marketplace = () => {
             <p className="text-muted-foreground mt-2 text-sm md:text-base">
               Browse auctions freely — connect a wallet when you're ready to place a bid.
             </p>
-            <div className="mt-2 text-[11px] md:text-xs font-mono text-muted-foreground break-all">
-              Contract: {CONTRACT_ADDRESS}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] md:text-xs font-mono text-muted-foreground">Contract:</span>
+              <EtherscanLink kind="contract" variant="pill" showCopy />
             </div>
           </div>
-          <Button variant="outline" onClick={load} disabled={loading} className="self-start">
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2 self-start">
+            <EtherscanLink kind="contract" variant="button" label="View on Blockchain" />
+            <Button variant="outline" onClick={load} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          </div>
         </div>
 
         {!loading && !error && auctions.length > 0 && (

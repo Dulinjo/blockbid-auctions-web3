@@ -1,5 +1,6 @@
 import { Logo } from "./Logo";
 import { CONTRACT_INFO } from "@/lib/mockData";
+import { EtherscanLink } from "./EtherscanLink";
 
 export const Footer = () => (
   <footer className="border-t border-border/60 bg-card/30 mt-24">
@@ -14,6 +15,9 @@ export const Footer = () => (
           <span className="text-xs font-mono text-muted-foreground">
             {CONTRACT_INFO.network} • Live
           </span>
+        </div>
+        <div className="pt-1">
+          <EtherscanLink kind="contract" variant="button" label="View Contract on Etherscan" />
         </div>
       </div>
       <div>
@@ -38,7 +42,7 @@ export const Footer = () => (
     <div className="border-t border-border/60">
       <div className="container py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>© 2025 BlockBid. All bids settled on-chain.</span>
-        <span className="font-mono">{CONTRACT_INFO.address.slice(0, 10)}...{CONTRACT_INFO.address.slice(-6)}</span>
+        <EtherscanLink kind="contract" variant="link" showCopy />
       </div>
     </div>
   </footer>
