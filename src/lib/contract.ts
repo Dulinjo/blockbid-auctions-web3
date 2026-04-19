@@ -116,17 +116,19 @@ export async function getNetworkInfo() {
 }
 
 export async function ensureSepoliaNetwork() {
-  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
-  const chainId = await window.ethereum.request({ method: "eth_chainId" });
+  const eip = getWriteEip1193();
+  if (!eip) throw new Error("Wallet nije povezan.");
+  const chainId = await eip.request({ method: "eth_chainId" });
   if (chainId !== SEPOLIA_CHAIN_ID) {
-    throw new Error("Poveži MetaMask na Sepolia mrežu.");
+    throw new Error("Poveži wallet na Sepolia mrežu.");
   }
 }
 
 export async function switchToSepolia() {
-  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
+  const eip = getWriteEip1193();
+  if (!eip) throw new Error("Wallet nije povezan.");
   try {
-    await window.ethereum.request({
+    await eip.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: SEPOLIA_CHAIN_ID }],
     });
@@ -134,7 +136,7 @@ export async function switchToSepolia() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const e = err as any;
     if (e?.code === 4902) {
-      await window.ethereum.request({
+      await eip.request({
         method: "wallet_addEthereumChain",
         params: [
           {
