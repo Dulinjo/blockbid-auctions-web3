@@ -181,28 +181,28 @@ const Dashboard = () => {
           <TabsContent value="created" className="mt-6">
             {myCreated.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myCreated.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {myCreated.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="You haven't created any auctions yet." />}
           </TabsContent>
           <TabsContent value="bids" className="mt-6">
             {myBids.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myBids.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {myBids.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="You're not the highest bidder on any auctions." />}
           </TabsContent>
           <TabsContent value="won" className="mt-6">
             {myWon.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myWon.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {myWon.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="No won auctions yet." />}
           </TabsContent>
           <TabsContent value="ended" className="mt-6">
             {ended.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {ended.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {ended.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="None of your auctions have ended." />}
           </TabsContent>
