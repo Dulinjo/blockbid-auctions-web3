@@ -135,7 +135,7 @@ const AuctionDetails = () => {
                 <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
                   {isEnded ? "Final time" : "Auction ends in"}
                 </div>
-                <Countdown target={auction.endTime} />
+                <Countdown target={auction.endsAtMs} />
               </div>
 
               {!wallet ? (
