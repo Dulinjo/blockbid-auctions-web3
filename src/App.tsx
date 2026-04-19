@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard.tsx";
 import ContractInfo from "./pages/ContractInfo.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AuctionTest from "./components/AuctionTest";
+import Debug from "./pages/Debug.tsx";
 import { TxDebugPanel } from "./components/TxDebugPanel";
 
 const queryClient = new QueryClient();
