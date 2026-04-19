@@ -163,10 +163,45 @@ const Marketplace = () => {
             </Button>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {filtered.map((a) => (
-              <AuctionCard key={a.id} auction={a} />
-            ))}
+          <div className="space-y-8">
+            {activeCount > 0 && (
+              <div>
+                <div className="flex items-baseline justify-between mb-3">
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                    Ending soon
+                  </h2>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    {activeCount} active
+                  </span>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                  {filtered
+                    .filter((a) => a.status === "active")
+                    .map((a) => (
+                      <AuctionCard key={a.id} auction={a} />
+                    ))}
+                </div>
+              </div>
+            )}
+            {endedCount > 0 && (
+              <div>
+                <div className="flex items-baseline justify-between mb-3">
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                    Ended
+                  </h2>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    {endedCount} closed
+                  </span>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 opacity-90">
+                  {filtered
+                    .filter((a) => a.status !== "active")
+                    .map((a) => (
+                      <AuctionCard key={a.id} auction={a} />
+                    ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>
