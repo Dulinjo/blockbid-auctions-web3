@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { AuctionCard } from "@/components/AuctionCard";
+import { AuctionStories } from "@/components/AuctionStories";
 import { Auction, AuctionStatus } from "@/lib/types";
 import { getAllAuctions, OnChainAuction, CONTRACT_ADDRESS } from "@/lib/contract";
 import { getAllAuctionMetadata, refreshAuctionMetadata } from "@/lib/auctionMetadata";
@@ -105,6 +106,10 @@ const Marketplace = () => {
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>
         </div>
+
+        {!loading && !error && auctions.length > 0 && (
+          <AuctionStories auctions={auctions} />
+        )}
 
         <div className="rounded-2xl border border-border bg-card/40 backdrop-blur p-4 mb-8 flex flex-col md:flex-row gap-3">
           <div className="relative flex-1">
