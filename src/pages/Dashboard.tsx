@@ -33,6 +33,7 @@ const toUiAuction = (a: OnChainAuction, meta: Record<number, AuctionMetadata>): 
 const Dashboard = () => {
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
   const [auctions, setAuctions] = useState<OnChainAuction[]>([]);
+  const [meta, setMeta] = useState<Record<number, AuctionMetadata>>({});
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState("0");
   const [withdrawing, setWithdrawing] = useState(false);
@@ -46,6 +47,7 @@ const Dashboard = () => {
         getPendingReturns(wallet.address).catch(() => "0"),
       ]);
       setAuctions(list);
+      setMeta(getAllAuctionMetadata());
       setPending(p);
     } finally {
       setLoading(false);
