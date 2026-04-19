@@ -194,7 +194,7 @@ const ContractInfo = () => {
                     <div className="text-right shrink-0">
                       <div className="text-xs text-muted-foreground">{a.highestBidEth} ETH</div>
                       <a
-                        href={explorerTxUrl(CONTRACT_ADDRESS).replace("/tx/", "/address/")}
+                        href={contractUrl()}
                         target="_blank"
                         rel="noreferrer"
                         className="text-[11px] text-primary hover:text-primary-glow inline-flex items-center gap-0.5"
