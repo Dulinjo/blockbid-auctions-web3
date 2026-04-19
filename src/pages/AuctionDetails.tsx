@@ -57,6 +57,11 @@ const AuctionDetails = () => {
   useEffect(() => {
     setLoading(true);
     setAuction(null);
+    // Always start at the top so the image is the first thing the user sees,
+    // especially important on mobile when navigating from the marketplace list.
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auctionId]);
