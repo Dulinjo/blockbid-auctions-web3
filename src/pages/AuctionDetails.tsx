@@ -8,10 +8,12 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/contexts/WalletContext";
 import { BidModal } from "@/components/BidModal";
-import { ArrowLeft, Gavel, Wallet, ExternalLink, FileCode2, Trophy, User, Loader2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Gavel, Wallet, ExternalLink, FileCode2, Trophy, User, Loader2, AlertTriangle, ShieldCheck } from "lucide-react";
 import placeholder from "@/assets/auction-1.jpg";
 import { toast } from "sonner";
 import { AuctionStatus } from "@/lib/types";
+import { EtherscanLink } from "@/components/EtherscanLink";
+import { txUrl } from "@/lib/explorer";
 
 const statusOf = (a: OnChainAuction): AuctionStatus =>
   a.ended ? "finalized" : a.active ? "active" : "ended";
@@ -70,7 +72,13 @@ const AuctionDetails = () => {
     setEnding(true);
     try {
       const { txHash } = await endAuction(auctionId);
-      toast.success("Auction ended", { description: `Tx: ${txHash.slice(0, 10)}...` });
+      toast.success("Auction ended on-chain", {
+        description: `Tx: ${txHash.slice(0, 10)}…${txHash.slice(-6)}`,
+        action: {
+          label: "View Tx",
+          onClick: () => window.open(txUrl(txHash), "_blank", "noopener,noreferrer"),
+        },
+      });
       await refresh();
     } catch (e) {
       toast.error("Failed to end auction", { description: parseTxError(e) });
