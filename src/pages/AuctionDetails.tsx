@@ -143,47 +143,57 @@ const AuctionDetails = () => {
 
   return (
     <Layout>
-      <div className="container py-8">
-        <Button asChild variant="ghost" size="sm" className="mb-6 -ml-2">
+      <div className="container py-6 md:py-8">
+        <Button asChild variant="ghost" size="sm" className="mb-4 md:mb-6 -ml-2">
           <Link to="/marketplace"><ArrowLeft className="mr-1 h-4 w-4" /> Back to marketplace</Link>
         </Button>
 
-        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
+        <div className="grid lg:grid-cols-2 gap-6 md:gap-8 lg:gap-12">
           <div className="relative">
-            <div className="aspect-square rounded-3xl overflow-hidden border border-border bg-card">
-              <img src={imageUrl} alt={displayTitle} width={800} height={800} className="h-full w-full object-cover" />
+            <div className="aspect-square rounded-2xl md:rounded-3xl overflow-hidden border border-border bg-card">
+              <img
+                src={imageUrl}
+                alt={displayTitle}
+                width={800}
+                height={800}
+                onError={(e) => {
+                  const t = e.currentTarget;
+                  if (!t.src.endsWith(placeholder)) t.src = placeholder;
+                }}
+                className="h-full w-full object-cover"
+              />
             </div>
-            <div className="absolute top-4 left-4">
+            <div className="absolute top-3 left-3 md:top-4 md:left-4">
               <StatusBadge status={status} />
             </div>
             {meta?.sourceType && (
-              <div className="absolute top-4 right-4 text-[10px] px-2 py-0.5 rounded-full bg-background/80 backdrop-blur border border-border text-muted-foreground">
+              <div className="absolute top-3 right-3 md:top-4 md:right-4 text-[10px] px-2 py-0.5 rounded-full bg-background/80 backdrop-blur border border-border text-muted-foreground">
                 {meta.sourceType === "ai" ? "AI generated" : "Uploaded"} · off-chain
               </div>
             )}
           </div>
 
-          <div className="space-y-6">
-            <div>
+          <div className="space-y-6 min-w-0">
+            <div className="min-w-0">
               <div className="text-xs font-mono text-muted-foreground mb-2">On-chain • #{auction.id}</div>
-              <h1 className="text-3xl md:text-4xl font-bold leading-tight">{displayTitle}</h1>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold leading-tight break-words">{displayTitle}</h1>
               {meta?.description && (
-                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{meta.description}</p>
+                <p className="text-sm text-muted-foreground mt-2 leading-relaxed break-words">{meta.description}</p>
               )}
-              <div className="mt-3 text-sm text-muted-foreground flex items-center gap-2">
-                <User className="h-3.5 w-3.5" /> Seller <span className="font-mono text-foreground">{shortenAddress(auction.seller)}</span>
+              <div className="mt-3 text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+                <User className="h-3.5 w-3.5 shrink-0" /> Seller <span className="font-mono text-foreground truncate">{shortenAddress(auction.seller)}</span>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border bg-gradient-card p-6 space-y-5">
-              <div className="grid grid-cols-2 gap-6">
-                <div>
+            <div className="rounded-2xl border border-border bg-gradient-card p-5 md:p-6 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                <div className="min-w-0">
                   <div className="text-xs uppercase tracking-wider text-muted-foreground">Starting price</div>
-                  <div className="font-mono text-xl font-semibold mt-1">{auction.startingPrice} ETH</div>
+                  <div className="font-mono text-xl font-semibold mt-1 truncate">{auction.startingPrice} ETH</div>
                 </div>
-                <div>
+                <div className="min-w-0 sm:border-l sm:border-border/60 sm:pl-6">
                   <div className="text-xs uppercase tracking-wider text-muted-foreground">Current bid</div>
-                  <div className="font-mono text-3xl font-bold text-gradient-primary mt-1">{auction.highestBid} ETH</div>
+                  <div className="font-mono text-2xl sm:text-3xl font-bold text-gradient-primary mt-1 truncate">{auction.highestBid} ETH</div>
                 </div>
               </div>
 

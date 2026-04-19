@@ -125,15 +125,15 @@ const Dashboard = () => {
       <div className="container py-12">
         <div className="rounded-2xl border border-border bg-gradient-card p-6 md:p-8 mb-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <div className="text-xs uppercase tracking-wider text-muted-foreground">Connected wallet</div>
-              <div className="font-mono text-lg md:text-xl mt-1 break-all">{shortenAddress(wallet.address, 8)}</div>
-              <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
+              <div className="font-mono text-base sm:text-lg md:text-xl mt-1 break-all">{shortenAddress(wallet.address, 8)}</div>
+              <div className="flex items-center gap-2 sm:gap-3 mt-3 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-full ${correctNetwork ? "bg-success animate-pulse-glow" : "bg-warning"}`} />
                   {wallet.network}
                 </span>
-                <span>•</span>
+                <span className="hidden sm:inline">•</span>
                 <span className="font-mono">{wallet.balance} ETH</span>
               </div>
               {!correctNetwork && (
@@ -142,11 +142,11 @@ const Dashboard = () => {
                 </Button>
               )}
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={load} disabled={loading}>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" onClick={load} disabled={loading} className="flex-1 sm:flex-none">
                 <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
               </Button>
-              <Button asChild className="bg-gradient-primary text-primary-foreground">
+              <Button asChild className="bg-gradient-primary text-primary-foreground flex-1 sm:flex-none">
                 <Link to="/create"><Plus className="mr-1.5 h-4 w-4" /> New Auction</Link>
               </Button>
             </div>
