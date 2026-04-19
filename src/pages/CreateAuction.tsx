@@ -238,7 +238,7 @@ const CreateAuction = () => {
               <Button onClick={() => navigate("/marketplace")} className="bg-gradient-primary text-primary-foreground">
                 View Marketplace
               </Button>
-              <Button variant="outline" onClick={() => { setStep("form"); setForm({ title: "", description: "", category: "Digital Art", startingPrice: "", durationHours: "24" }); }}>
+              <Button variant="outline" onClick={() => { setStep("form"); setImage({ source: "none", url: null }); setForm({ title: "", description: "", category: "Digital Art", startingPrice: "", durationHours: "24" }); }}>
                 Create another
               </Button>
             </div>
