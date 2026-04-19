@@ -60,7 +60,7 @@ export default function AuctionTest() {
   const loadPending = async (address: string) => {
     try {
       const result = await getPendingReturns(address);
-      setPendingEth(result.eth);
+      setPendingEth(result);
     } catch {
       setPendingEth("0.0");
     }
@@ -91,7 +91,7 @@ export default function AuctionTest() {
   const handleCheckMinBid = async () => {
     try {
       const result = await getCurrentMinBid(Number(bidAuctionId));
-      setMinBid(result.eth);
+      setMinBid(result);
       setStatus("Minimalna sledeća ponuda učitana.");
     } catch (e: any) {
       setStatus(e.message || "Greška pri čitanju minimalne ponude.");
