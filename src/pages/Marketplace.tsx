@@ -63,11 +63,30 @@ const Marketplace = () => {
     let list = [...auctions];
     if (query) list = list.filter((a) => a.title.toLowerCase().includes(query.toLowerCase()) || a.id.includes(query));
     if (status !== "all") list = list.filter((a) => a.status === (status as AuctionStatus));
-    if (sort === "ending") list.sort((a, b) => a.endsAt - b.endsAt);
-    if (sort === "price-high") list.sort((a, b) => b.highestBid - a.highestBid);
-    if (sort === "price-low") list.sort((a, b) => a.highestBid - b.highestBid);
+
+    // Always prioritize active auctions over ended/finalized ones, regardless
+    // of the chosen sort. Within each group we apply the selected ordering;
+    // active auctions ending soonest stay at the top by default.
+    const isActive = (a: Auction) => a.status === "active";
+    const compareWithin = (a: Auction, b: Auction) => {
+      if (sort === "price-high") return b.highestBid - a.highestBid;
+      if (sort === "price-low") return a.highestBid - b.highestBid;
+      // "ending" — active sorted by soonest end first; ended sorted by most
+      // recently ended first so freshly closed auctions are visible.
+      if (isActive(a) && isActive(b)) return a.endsAt - b.endsAt;
+      return b.endsAt - a.endsAt;
+    };
+    list.sort((a, b) => {
+      const aActive = isActive(a);
+      const bActive = isActive(b);
+      if (aActive !== bActive) return aActive ? -1 : 1;
+      return compareWithin(a, b);
+    });
     return list;
   }, [auctions, query, status, sort]);
+
+  const activeCount = filtered.filter((a) => a.status === "active").length;
+  const endedCount = filtered.length - activeCount;
 
   return (
     <Layout>
