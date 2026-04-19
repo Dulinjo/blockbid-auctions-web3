@@ -9,6 +9,7 @@ import { Auction } from "@/lib/types";
 import { getAllAuctions, OnChainAuction } from "@/lib/contract";
 import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
+import { AuctionStories } from "@/components/AuctionStories";
 import placeholder from "@/assets/auction-1.jpg";
 
 const toUiAuction = (
