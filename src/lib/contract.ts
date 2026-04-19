@@ -1,257 +1,177 @@
-/**
- * BlockBid contract helper.
- * All blockchain logic lives here so components stay clean.
- */
-import { BrowserProvider, Contract, JsonRpcSigner, formatEther, parseEther } from "ethers";
+import { BrowserProvider, Contract, formatEther, parseEther } from "ethers";
 import abi from "@/abi/BlockBidAuction.json";
 
-export const CONTRACT_ADDRESS = "0xd8b934580fcE35a11B58C6D73aDeE468a2833fa8";
-export const EXPECTED_CHAIN_ID = 11155111; // Sepolia
-export const EXPECTED_NETWORK_NAME = "Sepolia";
-export const ABI = abi;
+export const CONTRACT_ADDRESS = "0x32A5C515cbb766A6Df86CF2073ef755a45e8d746";
+export const SEPOLIA_CHAIN_ID = "0xaa36a7";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const eth = () => (typeof window !== "undefined" ? (window as any).ethereum : undefined);
-
-export const isMetaMaskInstalled = (): boolean => Boolean(eth()?.isMetaMask);
-
-export interface WalletInfo {
-  address: string;
-  network: string;
-  chainId: number;
-  balance: string;
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
 }
 
-export interface OnChainAuction {
-  id: number;
-  seller: string;
-  title: string;
-  startingPrice: string; // ETH
-  highestBid: string; // ETH
-  highestBidder: string;
-  endTime: number; // unix ms
-  ended: boolean;
-  active: boolean;
-  timeLeft: number; // seconds
+export function shortAddress(address?: string) {
+  if (!address) return "";
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-export const getProvider = (): BrowserProvider => {
-  const e = eth();
-  if (!e) throw new Error("MetaMask not detected. Please install MetaMask.");
-  return new BrowserProvider(e);
-};
+export async function getProvider() {
+  if (!window.ethereum) {
+    throw new Error("MetaMask nije instaliran.");
+  }
+  return new BrowserProvider(window.ethereum);
+}
 
-export const getSigner = async (): Promise<JsonRpcSigner> => {
-  const provider = getProvider();
-  return await provider.getSigner();
-};
+export async function getSigner() {
+  const provider = await getProvider();
+  return provider.getSigner();
+}
 
-export const getContract = async (withSigner = false): Promise<Contract> => {
-  const provider = getProvider();
+export async function connectWallet() {
+  const provider = await getProvider();
+  await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner();
+  const address = await signer.getAddress();
+
+  return { provider, signer, address };
+}
+
+export async function getNetworkInfo() {
+  const provider = await getProvider();
+  const network = await provider.getNetwork();
+  return {
+    chainId: `0x${network.chainId.toString(16)}`,
+    chainIdDecimal: Number(network.chainId),
+    name: network.name,
+  };
+}
+
+export async function ensureSepoliaNetwork() {
+  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
+
+  const chainId = await window.ethereum.request({ method: "eth_chainId" });
+
+  if (chainId !== SEPOLIA_CHAIN_ID) {
+    throw new Error("Poveži MetaMask na Sepolia mrežu.");
+  }
+}
+
+export async function getContract(withSigner = false) {
+  await ensureSepoliaNetwork();
+  const provider = await getProvider();
+
   if (withSigner) {
     const signer = await provider.getSigner();
-    return new Contract(CONTRACT_ADDRESS, ABI, signer);
-  }
-  return new Contract(CONTRACT_ADDRESS, ABI, provider);
-};
-
-export const switchToSepolia = async (): Promise<void> => {
-  const e = eth();
-  if (!e) throw new Error("MetaMask not detected");
-  try {
-    await e.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0xaa36a7" }],
-    });
-  } catch (err: unknown) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((err as any)?.code === 4902) {
-      await e.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: "0xaa36a7",
-            chainName: "Sepolia Testnet",
-            nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
-            rpcUrls: ["https://rpc.sepolia.org"],
-            blockExplorerUrls: ["https://sepolia.etherscan.io"],
-          },
-        ],
-      });
-    } else {
-      throw err;
-    }
-  }
-};
-
-export const connectWallet = async (): Promise<WalletInfo> => {
-  const e = eth();
-  if (!e) throw new Error("MetaMask not detected. Please install MetaMask.");
-  const accounts: string[] = await e.request({ method: "eth_requestAccounts" });
-  if (!accounts || accounts.length === 0) throw new Error("No account selected");
-
-  const provider = getProvider();
-  const network = await provider.getNetwork();
-  const balanceWei = await provider.getBalance(accounts[0]);
-
-  return {
-    address: accounts[0],
-    network: network.name === "unknown" ? `Chain ${network.chainId}` : network.name,
-    chainId: Number(network.chainId),
-    balance: parseFloat(formatEther(balanceWei)).toFixed(4),
-  };
-};
-
-// ---- Read methods ----
-
-export const getAuctionCount = async (): Promise<number> => {
-  const c = await getContract(false);
-  const count: bigint = await c.auctionCount();
-  return Number(count);
-};
-
-export const getAuction = async (id: number): Promise<OnChainAuction> => {
-  const c = await getContract(false);
-  // Try getAuction(uint256) first; fall back to public mapping `auctions(uint256)`.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let raw: any;
-  try {
-    raw = await c.getAuction(id);
-  } catch {
-    raw = await c.auctions(id);
+    return new Contract(CONTRACT_ADDRESS, abi, signer);
   }
 
-  const [aid, seller, title, startingPrice, highestBid, highestBidder, endTime, ended] = raw;
-  const endMs = Number(endTime) * 1000;
-  const now = Date.now();
-  const active = !ended && endMs > now;
-  const timeLeft = Math.max(0, Math.floor((endMs - now) / 1000));
-
-  return {
-    id: Number(aid),
-    seller,
-    title,
-    startingPrice: formatEther(startingPrice),
-    highestBid: formatEther(highestBid),
-    highestBidder,
-    endTime: endMs,
-    ended,
-    active,
-    timeLeft,
-  };
-};
-
-export const getCurrentMinBid = async (id: number): Promise<string> => {
-  const c = await getContract(false);
-  try {
-    const v: bigint = await c.getCurrentMinBid(id);
-    return formatEther(v);
-  } catch {
-    const a = await getAuction(id);
-    const current = parseFloat(a.highestBid) || parseFloat(a.startingPrice);
-    return (current + 0.0001).toString();
-  }
-};
-
-export const isAuctionActive = async (id: number): Promise<boolean> => {
-  const c = await getContract(false);
-  try {
-    return await c.isAuctionActive(id);
-  } catch {
-    const a = await getAuction(id);
-    return a.active;
-  }
-};
-
-export const getTimeLeft = async (id: number): Promise<number> => {
-  const c = await getContract(false);
-  try {
-    const v: bigint = await c.getTimeLeft(id);
-    return Number(v);
-  } catch {
-    const a = await getAuction(id);
-    return a.timeLeft;
-  }
-};
-
-export const getAllAuctions = async (): Promise<OnChainAuction[]> => {
-  const count = await getAuctionCount();
-  const ids = Array.from({ length: count }, (_, i) => i + 1);
-  const results = await Promise.all(
-    ids.map((id) => getAuction(id).catch(() => null))
-  );
-  return results.filter((a): a is OnChainAuction => a !== null);
-};
-
-// ---- Write methods ----
-
-export interface CreateAuctionInput {
-  title: string;
-  startingPriceEth: string; // "0.05"
-  durationMinutes: number;
+  return new Contract(CONTRACT_ADDRESS, abi, provider);
 }
 
-export const createAuction = async (
-  input: CreateAuctionInput
-): Promise<{ txHash: string }> => {
-  const c = await getContract(true);
-  const tx = await c.createAuction(
-    input.title,
-    parseEther(input.startingPriceEth),
-    BigInt(input.durationMinutes)
+export async function getAuctionCount() {
+  const contract = await getContract(false);
+  const count = await contract.auctionCount();
+  return Number(count);
+}
+
+export async function getAuction(id: number) {
+  const contract = await getContract(false);
+  const auction = await contract.getAuction(id);
+
+  return {
+    id: Number(auction[0]),
+    seller: auction[1],
+    title: auction[2],
+    startingBidWei: auction[3].toString(),
+    startingBidEth: formatEther(auction[3]),
+    highestBidWei: auction[4].toString(),
+    highestBidEth: formatEther(auction[4]),
+    highestBidder: auction[5],
+    endTime: Number(auction[6]),
+    ended: auction[7],
+  };
+}
+
+export async function getCurrentMinBid(auctionId: number) {
+  const contract = await getContract(false);
+  const result = await contract.getCurrentMinBid(auctionId);
+
+  return {
+    wei: result.toString(),
+    eth: formatEther(result),
+  };
+}
+
+export async function isAuctionActive(auctionId: number) {
+  const contract = await getContract(false);
+  return await contract.isAuctionActive(auctionId);
+}
+
+export async function getTimeLeft(auctionId: number) {
+  const contract = await getContract(false);
+  const result = await contract.getTimeLeft(auctionId);
+  return Number(result);
+}
+
+export async function createAuction(
+  title: string,
+  startingBidEth: string,
+  durationInMinutes: number
+) {
+  if (!title.trim()) throw new Error("Naziv aukcije je obavezan.");
+  if (!startingBidEth) throw new Error("Početna cena je obavezna.");
+  if (!durationInMinutes || durationInMinutes <= 0) {
+    throw new Error("Trajanje mora biti veće od 0.");
+  }
+
+  const contract = await getContract(true);
+  const tx = await contract.createAuction(
+    title,
+    parseEther(startingBidEth),
+    durationInMinutes
   );
-  await tx.wait();
-  return { txHash: tx.hash };
-};
+  return await tx.wait();
+}
 
-export const placeBid = async (
-  auctionId: number,
-  bidEth: string
-): Promise<{ txHash: string }> => {
-  const c = await getContract(true);
-  const tx = await c.placeBid(auctionId, { value: parseEther(bidEth) });
-  await tx.wait();
-  return { txHash: tx.hash };
-};
+export async function placeBid(auctionId: number, amountEth: string) {
+  if (!amountEth) throw new Error("Iznos ponude je obavezan.");
 
-export const endAuction = async (auctionId: number): Promise<{ txHash: string }> => {
-  const c = await getContract(true);
-  const tx = await c.endAuction(auctionId);
-  await tx.wait();
-  return { txHash: tx.hash };
-};
+  const contract = await getContract(true);
+  const tx = await contract.placeBid(auctionId, {
+    value: parseEther(amountEth),
+  });
+  return await tx.wait();
+}
 
-export const withdraw = async (): Promise<{ txHash: string }> => {
-  const c = await getContract(true);
-  const tx = await c.withdraw();
-  await tx.wait();
-  return { txHash: tx.hash };
-};
+export async function endAuction(auctionId: number) {
+  const contract = await getContract(true);
+  const tx = await contract.endAuction(auctionId);
+  return await tx.wait();
+}
 
-export const getPendingReturns = async (address: string): Promise<string> => {
-  const c = await getContract(false);
-  const v: bigint = await c.pendingReturns(address);
-  return formatEther(v);
-};
+export async function withdrawFunds() {
+  const contract = await getContract(true);
+  const tx = await contract.withdraw();
+  return await tx.wait();
+}
 
-// ---- Helpers ----
+export async function getPendingReturns(address: string) {
+  const contract = await getContract(false);
+  const result = await contract.pendingReturns(address);
+  return {
+    wei: result.toString(),
+    eth: formatEther(result),
+  };
+}
 
-export const shortenAddress = (addr: string, chars = 4): string => {
-  if (!addr) return "";
-  return addr.length > chars * 2 + 2
-    ? `${addr.slice(0, chars + 2)}...${addr.slice(-chars)}`
-    : addr;
-};
+export async function getAllAuctions() {
+  const count = await getAuctionCount();
 
-export const parseTxError = (err: unknown): string => {
-  if (!err) return "Unknown error";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const e = err as any;
-  if (e.code === 4001 || e.code === "ACTION_REJECTED") return "Transaction rejected in MetaMask";
-  if (e.reason) return e.reason;
-  if (e.shortMessage) return e.shortMessage;
-  if (e.message) return e.message;
-  return "Transaction failed";
-};
+  if (count === 0) return [];
 
-export { formatEther, parseEther };
+  const auctions = await Promise.all(
+    Array.from({ length: count }, (_, i) => getAuction(i + 1))
+  );
+
+  return auctions.sort((a, b) => b.id - a.id);
+}
