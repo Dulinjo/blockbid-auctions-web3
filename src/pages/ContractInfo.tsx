@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EtherscanLink } from "@/components/EtherscanLink";
-import { explorerTxUrl } from "@/lib/explorer";
+import { contractUrl } from "@/lib/explorer";
 
 const CONTRACT_INFO = {
   address: CONTRACT_ADDRESS,
