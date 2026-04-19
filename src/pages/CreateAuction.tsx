@@ -20,6 +20,7 @@ const CreateAuction = () => {
   const [tx, setTx] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
+  const [image, setImage] = useState<AuctionImageState>({ source: "none", url: null });
   const [form, setForm] = useState({
     title: "",
     description: "",
