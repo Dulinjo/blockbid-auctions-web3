@@ -3,26 +3,33 @@ import { Layout } from "@/components/Layout";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Auction, AuctionStatus } from "@/lib/types";
 import { getAllAuctions, OnChainAuction, CONTRACT_ADDRESS } from "@/lib/contract";
+import { getAllAuctionMetadata } from "@/lib/auctionMetadata";
 import { Input } from "@/components/ui/input";
 import { Search, SlidersHorizontal, RefreshCw, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import placeholder from "@/assets/auction-1.jpg";
 
-const toUiAuction = (a: OnChainAuction): Auction => ({
-  id: String(a.id),
-  title: a.title || `Auction #${a.id}`,
-  description: "On-chain auction managed by the BlockBid smart contract.",
-  category: "On-chain",
-  image: placeholder,
-  seller: a.seller,
-  startingPrice: parseFloat(a.startingPrice),
-  highestBid: parseFloat(a.highestBid),
-  highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
-  endsAt: a.endsAtMs,
-  status: a.ended ? "finalized" : a.active ? "active" : "ended",
-  bidCount: 0,
-});
+const toUiAuction = (
+  a: OnChainAuction,
+  meta: Record<number, ReturnType<typeof getAllAuctionMetadata>[number]>
+): Auction => {
+  const m = meta[a.id];
+  return {
+    id: String(a.id),
+    title: m?.title || a.title || `Auction #${a.id}`,
+    description: m?.description || "On-chain auction managed by the BlockBid smart contract.",
+    category: m?.category || "On-chain",
+    image: m?.imageUrl || placeholder,
+    seller: a.seller,
+    startingPrice: parseFloat(a.startingPrice),
+    highestBid: parseFloat(a.highestBid),
+    highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
+    endsAt: a.endsAtMs,
+    status: a.ended ? "finalized" : a.active ? "active" : "ended",
+    bidCount: 0,
+  };
+};
 
 const Marketplace = () => {
   const [auctions, setAuctions] = useState<Auction[]>([]);
@@ -37,7 +44,8 @@ const Marketplace = () => {
     setError(null);
     try {
       const list = await getAllAuctions();
-      setAuctions(list.map(toUiAuction));
+      const meta = getAllAuctionMetadata();
+      setAuctions(list.map((a) => toUiAuction(a, meta)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load auctions");
     } finally {
