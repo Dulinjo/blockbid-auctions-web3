@@ -21,7 +21,7 @@ const toUiAuction = (a: OnChainAuction): Auction => ({
   startingPrice: parseFloat(a.startingPrice),
   highestBid: parseFloat(a.highestBid),
   highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
-  endsAt: a.endTime,
+  endsAt: a.endsAtMs,
   status: a.ended ? "finalized" : a.active ? "active" : "ended",
   bidCount: 0,
 });
