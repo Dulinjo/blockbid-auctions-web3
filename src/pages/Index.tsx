@@ -4,14 +4,16 @@ import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
 import { ArrowRight, ShieldCheck, Wallet, FileCode2, Activity, Sparkles } from "lucide-react";
 import heroBg from "@/assets/hero-bg.jpg";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Auction } from "@/lib/types";
-import { getAllAuctions, OnChainAuction } from "@/lib/contract";
+import { getAllAuctions, OnChainAuction, EXPECTED_NETWORK_NAME } from "@/lib/contract";
 import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
 import { AuctionStories } from "@/components/AuctionStories";
 import { EtherscanLink } from "@/components/EtherscanLink";
 import placeholder from "@/assets/auction-1.jpg";
+
+const ENDING_SOON_MS = 60 * 60 * 1000;
 
 const toUiAuction = (
   a: OnChainAuction,
