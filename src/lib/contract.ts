@@ -284,7 +284,7 @@ export interface TxCallbacks {
 
 async function preflight(callbacks?: TxCallbacks) {
   callbacks?.onPhase?.("preflight");
-  if (!isMetaMaskInstalled()) throw new Error("MetaMask nije instaliran.");
+  if (!hasAnyWallet()) throw new Error("Wallet nije povezan.");
   await ensureSepoliaNetwork();
 }
 
