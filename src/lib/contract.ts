@@ -270,14 +270,55 @@ export const withdraw = withdrawFunds;
 
 /* ---------------- Error helper ---------------- */
 
-export function parseTxError(err: unknown): string {
-  if (!err) return "Nepoznata greška.";
+export type TxErrorKind =
+  | "user_rejected"
+  | "wrong_network"
+  | "no_wallet"
+  | "insufficient_funds"
+  | "contract_revert"
+  | "provider_disconnected"
+  | "network_error"
+  | "unknown";
+
+export interface ParsedTxError {
+  kind: TxErrorKind;
+  message: string;
+  raw?: unknown;
+}
+
+export function classifyTxError(err: unknown): ParsedTxError {
+  if (!err) return { kind: "unknown", message: "Nepoznata greška." };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = err as any;
-  if (e?.code === 4001 || e?.code === "ACTION_REJECTED") return "Transakcija odbijena u walletu.";
-  if (e?.shortMessage) return e.shortMessage;
-  if (e?.reason) return e.reason;
-  if (e?.data?.message) return e.data.message;
-  if (e?.message) return e.message;
-  return String(err);
+  const code = e?.code ?? e?.error?.code;
+  const msg: string =
+    e?.shortMessage ||
+    e?.reason ||
+    e?.info?.error?.message ||
+    e?.error?.message ||
+    e?.data?.message ||
+    e?.message ||
+    String(err);
+  const lower = String(msg).toLowerCase();
+
+  if (code === 4001 || code === "ACTION_REJECTED" || lower.includes("user rejected") || lower.includes("user denied"))
+    return { kind: "user_rejected", message: "Transakcija odbijena u walletu.", raw: err };
+  if (code === 4900 || code === 4901 || lower.includes("disconnected from"))
+    return { kind: "provider_disconnected", message: "Wallet nije povezan sa mrežom.", raw: err };
+  if (lower.includes("metamask nije instaliran") || lower.includes("no ethereum"))
+    return { kind: "no_wallet", message: "MetaMask nije dostupan u ovom pregledu. Otvori app u novom tabu.", raw: err };
+  if (lower.includes("sepolia") || lower.includes("chain") && lower.includes("network"))
+    return { kind: "wrong_network", message: "Pogrešna mreža. Prebaci MetaMask na Sepolia.", raw: err };
+  if (code === "INSUFFICIENT_FUNDS" || lower.includes("insufficient funds"))
+    return { kind: "insufficient_funds", message: "Nedovoljno ETH za gas + iznos.", raw: err };
+  if (code === "CALL_EXCEPTION" || lower.includes("execution reverted") || lower.includes("revert"))
+    return { kind: "contract_revert", message: msg.replace(/^execution reverted:?\s*/i, "Contract revert: "), raw: err };
+  if (code === "NETWORK_ERROR" || lower.includes("failed to fetch") || lower.includes("could not detect network"))
+    return { kind: "network_error", message: "Mrežna greška ka RPC-u. Proveri MetaMask konekciju i Sepolia RPC.", raw: err };
+
+  return { kind: "unknown", message: msg, raw: err };
+}
+
+export function parseTxError(err: unknown): string {
+  return classifyTxError(err).message;
 }
