@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { getAuction, OnChainAuction, endAuction, parseTxError, shortenAddress, CONTRACT_ADDRESS } from "@/lib/contract";
-import { getAuctionMetadata } from "@/lib/auctionMetadata";
+import { fetchAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { Countdown } from "@/components/Countdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -21,13 +21,12 @@ const AuctionDetails = () => {
   const auctionId = Number(id);
   const idIsValid = id !== undefined && id !== "" && Number.isInteger(auctionId) && auctionId > 0;
   const [auction, setAuction] = useState<OnChainAuction | null>(null);
+  const [meta, setMeta] = useState<AuctionMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bidOpen, setBidOpen] = useState(false);
   const [ending, setEnding] = useState(false);
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
-
-  const meta = useMemo(() => (idIsValid ? getAuctionMetadata(auctionId) : null), [auctionId, idIsValid]);
 
   const refresh = async () => {
     if (!idIsValid) {
@@ -37,8 +36,12 @@ const AuctionDetails = () => {
     }
     setLoadError(null);
     try {
-      const a = await getAuction(auctionId);
+      const [a, m] = await Promise.all([
+        getAuction(auctionId),
+        fetchAuctionMetadata(auctionId),
+      ]);
       setAuction(a);
+      setMeta(m);
     } catch (e) {
       const msg = parseTxError(e);
       setLoadError(msg);

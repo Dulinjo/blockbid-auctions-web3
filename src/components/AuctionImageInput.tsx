@@ -11,6 +11,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export type AuctionImageSource = "upload" | "ai" | "none";
 
@@ -31,6 +32,21 @@ interface Props {
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const ACCEPTED = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const BUCKET = "auction-images";
+
+/** Upload a file to the public auction-images bucket and return its public URL. */
+async function uploadToBucket(file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase();
+  const path = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type,
+  });
+  if (error) throw error;
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
 
 const SAMPLE_PROMPTS = [
   "Futuristic crystal artwork, neon glow",
@@ -63,7 +79,7 @@ export function AuctionImageInput({ value, onChange }: Props) {
   const [aiPreview, setAiPreview] = useState<string | null>(null);
 
   const validateAndRead = useCallback(
-    (file: File) => {
+    async (file: File) => {
       setError(null);
       if (!ACCEPTED.includes(file.type)) {
         setError("Unsupported file type. Use PNG, JPG, WEBP or GIF.");
@@ -73,6 +89,7 @@ export function AuctionImageInput({ value, onChange }: Props) {
         setError("File too large. Max size is 5 MB.");
         return;
       }
+      // Show instant local preview while we upload to Cloud.
       const reader = new FileReader();
       reader.onload = () => {
         onChange({
@@ -80,10 +97,24 @@ export function AuctionImageInput({ value, onChange }: Props) {
           url: String(reader.result),
           fileName: file.name,
         });
-        toast.success("Image uploaded");
       };
       reader.onerror = () => setError("Could not read file.");
       reader.readAsDataURL(file);
+
+      try {
+        const publicUrl = await uploadToBucket(file);
+        onChange({
+          source: "upload",
+          url: publicUrl,
+          fileName: file.name,
+        });
+        toast.success("Image uploaded");
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("[AuctionImageInput] cloud upload failed", e);
+        setError("Could not upload image. Please try again.");
+        toast.error("Image upload failed");
+      }
     },
     [onChange]
   );
