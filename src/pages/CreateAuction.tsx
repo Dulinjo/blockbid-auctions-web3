@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWallet } from "@/contexts/WalletContext";
-import { createAuction, parseTxError } from "@/lib/contract";
+import { createAuction, classifyTxError } from "@/lib/contract";
+import { debugBus } from "@/components/TxDebugPanel";
 import { useNavigate } from "react-router-dom";
 import { Wallet, Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -34,18 +35,37 @@ const CreateAuction = () => {
       return;
     }
     setStep("pending");
+    setErrorMsg("");
     try {
       const durationMinutes = Math.max(1, Math.floor(parseFloat(form.durationHours) * 60));
-      const { txHash } = await createAuction({
-        title: form.title.trim(),
-        startingPriceEth: form.startingPrice,
-        durationMinutes,
-      });
+      const { txHash } = await createAuction(
+        {
+          title: form.title.trim(),
+          startingPriceEth: form.startingPrice,
+          durationMinutes,
+        },
+        undefined,
+        undefined,
+        {
+          onPhase: (phase, info) => {
+            if (phase === "submitted" || phase === "confirmed") {
+              debugBus.set({ phase, txHash: info?.txHash ?? "" });
+            } else {
+              debugBus.set({ phase });
+            }
+          },
+        }
+      );
       setTx(txHash);
       setStep("success");
+      toast.success("Auction confirmed on-chain");
     } catch (err) {
-      setErrorMsg(parseTxError(err));
+      const parsed = classifyTxError(err);
+      console.error("[createAuction]", err);
+      setErrorMsg(`${parsed.kind}: ${parsed.message}`);
+      debugBus.set({ phase: "error", kind: parsed.kind, message: parsed.message });
       setStep("error");
+      toast.error("Transaction failed", { description: parsed.message });
     }
   };
 
