@@ -40,6 +40,8 @@ const Index = () => {
   const { wallet, connect } = useWallet();
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [allAuctions, setAllAuctions] = useState<Auction[]>([]);
+  const [onChainList, setOnChainList] = useState<OnChainAuction[]>([]);
+  const [readHealthy, setReadHealthy] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -48,6 +50,8 @@ const Index = () => {
           getAllAuctions(),
           refreshAuctionMetadata(),
         ]);
+        setOnChainList(list);
+        setReadHealthy(true);
         // Prefer active auctions ending soonest, like Marketplace.
         const sorted = [...list].sort((a, b) => {
           const aActive = !a.ended && a.active;
@@ -62,9 +66,27 @@ const Index = () => {
       } catch {
         setAuctions([]);
         setAllAuctions([]);
+        setOnChainList([]);
+        setReadHealthy(false);
       }
     })();
   }, []);
+
+  const heroStats = useMemo(() => {
+    const total = onChainList.length;
+    const active = onChainList.filter((a) => a.active).length;
+    const endingSoon = onChainList.filter(
+      (a) => a.active && a.endsAtMs - Date.now() <= ENDING_SOON_MS
+    ).length;
+    return [
+      { v: readHealthy === null ? "…" : String(total), l: "Auctions on-chain" },
+      { v: readHealthy === null ? "…" : String(active), l: "Active now" },
+      {
+        v: readHealthy === false ? "Offline" : readHealthy === null ? "…" : `${endingSoon} • ${EXPECTED_NETWORK_NAME}`,
+        l: "Ending soon",
+      },
+    ];
+  }, [onChainList, readHealthy]);
 
   return (
     <Layout>
