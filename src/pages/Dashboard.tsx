@@ -11,6 +11,8 @@ import { Link } from "react-router-dom";
 import { Auction } from "@/lib/types";
 import placeholder from "@/assets/auction-1.jpg";
 import { toast } from "sonner";
+import { EtherscanLink } from "@/components/EtherscanLink";
+import { txUrl } from "@/lib/explorer";
 
 const toUiAuction = (a: OnChainAuction, meta: Record<number, AuctionMetadata>): Auction => {
   const m = meta[a.id];
@@ -59,7 +61,13 @@ const Dashboard = () => {
     setWithdrawing(true);
     try {
       const { txHash } = await withdraw();
-      toast.success("Withdraw successful", { description: `Tx: ${txHash.slice(0, 10)}...` });
+      toast.success("Withdraw confirmed on-chain", {
+        description: `Tx: ${txHash.slice(0, 10)}…${txHash.slice(-6)}`,
+        action: {
+          label: "View Tx",
+          onClick: () => window.open(txUrl(txHash), "_blank", "noopener,noreferrer"),
+        },
+      });
       await load();
     } catch (e) {
       toast.error("Withdraw failed", { description: parseTxError(e) });
@@ -136,6 +144,12 @@ const Dashboard = () => {
                 </span>
                 <span className="hidden sm:inline">•</span>
                 <span className="font-mono">{wallet.balance} ETH</span>
+                <span className="hidden sm:inline">•</span>
+                <EtherscanLink kind="address" address={wallet.address} variant="link" label="View on Etherscan" />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-mono text-muted-foreground">Contract:</span>
+                <EtherscanLink kind="contract" variant="pill" showCopy />
               </div>
               {!correctNetwork && (
                 <Button size="sm" variant="outline" onClick={switchNetwork} className="mt-3 border-warning/40 text-warning hover:bg-warning/10">
