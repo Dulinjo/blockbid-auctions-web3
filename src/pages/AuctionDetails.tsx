@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { getAuction, OnChainAuction, endAuction, parseTxError, shortenAddress, CONTRACT_ADDRESS } from "@/lib/contract";
+import { getAuctionMetadata } from "@/lib/auctionMetadata";
 import { Countdown } from "@/components/Countdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
