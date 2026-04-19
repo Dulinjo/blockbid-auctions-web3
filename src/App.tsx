@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard.tsx";
 import ContractInfo from "./pages/ContractInfo.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AuctionTest from "./components/AuctionTest";
+import Debug from "./pages/Debug.tsx";
 import { TxDebugPanel } from "./components/TxDebugPanel";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/contract" element={<ContractInfo />} />
             <Route path="/demo" element={<AuctionTest />} />
+            <Route path="/debug" element={<Debug />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
