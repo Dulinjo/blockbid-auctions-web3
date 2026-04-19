@@ -4,14 +4,16 @@ import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
 import { ArrowRight, ShieldCheck, Wallet, FileCode2, Activity, Sparkles } from "lucide-react";
 import heroBg from "@/assets/hero-bg.jpg";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Auction } from "@/lib/types";
-import { getAllAuctions, OnChainAuction } from "@/lib/contract";
+import { getAllAuctions, OnChainAuction, EXPECTED_NETWORK_NAME } from "@/lib/contract";
 import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
 import { AuctionStories } from "@/components/AuctionStories";
 import { EtherscanLink } from "@/components/EtherscanLink";
 import placeholder from "@/assets/auction-1.jpg";
+
+const ENDING_SOON_MS = 60 * 60 * 1000;
 
 const toUiAuction = (
   a: OnChainAuction,
@@ -38,6 +40,8 @@ const Index = () => {
   const { wallet, connect } = useWallet();
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [allAuctions, setAllAuctions] = useState<Auction[]>([]);
+  const [onChainList, setOnChainList] = useState<OnChainAuction[]>([]);
+  const [readHealthy, setReadHealthy] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -46,6 +50,8 @@ const Index = () => {
           getAllAuctions(),
           refreshAuctionMetadata(),
         ]);
+        setOnChainList(list);
+        setReadHealthy(true);
         // Prefer active auctions ending soonest, like Marketplace.
         const sorted = [...list].sort((a, b) => {
           const aActive = !a.ended && a.active;
@@ -60,9 +66,27 @@ const Index = () => {
       } catch {
         setAuctions([]);
         setAllAuctions([]);
+        setOnChainList([]);
+        setReadHealthy(false);
       }
     })();
   }, []);
+
+  const heroStats = useMemo(() => {
+    const total = onChainList.length;
+    const active = onChainList.filter((a) => a.active).length;
+    const endingSoon = onChainList.filter(
+      (a) => a.active && a.endsAtMs - Date.now() <= ENDING_SOON_MS
+    ).length;
+    return [
+      { v: readHealthy === null ? "…" : String(total), l: "Auctions on-chain" },
+      { v: readHealthy === null ? "…" : String(active), l: "Active now" },
+      {
+        v: readHealthy === false ? "Offline" : readHealthy === null ? "…" : `${endingSoon} • ${EXPECTED_NETWORK_NAME}`,
+        l: "Ending soon",
+      },
+    ];
+  }, [onChainList, readHealthy]);
 
   return (
     <Layout>
@@ -130,13 +154,9 @@ const Index = () => {
               <EtherscanLink kind="contract" variant="pill" label="View Contract on Etherscan" />
             </div>
 
-            {/* Stats strip */}
+            {/* Stats strip — derived from live contract reads */}
             <div className="grid grid-cols-3 gap-6 max-w-2xl mx-auto pt-12">
-              {[
-                { v: "12.4K", l: "Auctions settled" },
-                { v: "$8.2M", l: "Total volume" },
-                { v: "99.9%", l: "On-chain verified" },
-              ].map((s) => (
+              {heroStats.map((s) => (
                 <div key={s.l} className="text-center">
                   <div className="text-2xl md:text-3xl font-bold text-gradient-primary font-mono">{s.v}</div>
                   <div className="text-xs uppercase tracking-wider text-muted-foreground mt-1">{s.l}</div>
