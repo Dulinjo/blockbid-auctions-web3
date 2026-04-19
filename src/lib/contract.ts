@@ -210,6 +210,18 @@ export interface TxResult {
   receipt: any;
 }
 
+export type TxPhase = "preflight" | "awaiting_signature" | "submitted" | "confirmed";
+
+export interface TxCallbacks {
+  onPhase?: (phase: TxPhase, info?: { txHash?: string }) => void;
+}
+
+async function preflight(callbacks?: TxCallbacks) {
+  callbacks?.onPhase?.("preflight");
+  if (!isMetaMaskInstalled()) throw new Error("MetaMask nije instaliran.");
+  await ensureSepoliaNetwork();
+}
+
 export interface CreateAuctionInput {
   title: string;
   startingPriceEth: string;
@@ -220,7 +232,8 @@ export interface CreateAuctionInput {
 export async function createAuction(
   titleOrInput: string | CreateAuctionInput,
   startingBidEth?: string,
-  durationInMinutes?: number
+  durationInMinutes?: number,
+  callbacks?: TxCallbacks
 ): Promise<TxResult> {
   let title: string;
   let priceEth: string;
@@ -239,31 +252,51 @@ export async function createAuction(
   if (!priceEth) throw new Error("Početna cena je obavezna.");
   if (!minutes || minutes <= 0) throw new Error("Trajanje mora biti veće od 0.");
 
+  await preflight(callbacks);
   const contract = await getContract(true);
+  callbacks?.onPhase?.("awaiting_signature");
   const tx = await contract.createAuction(title, parseEther(priceEth), minutes);
+  callbacks?.onPhase?.("submitted", { txHash: tx.hash });
   const receipt = await tx.wait();
+  callbacks?.onPhase?.("confirmed", { txHash: tx.hash });
   return { txHash: tx.hash, receipt };
 }
 
-export async function placeBid(auctionId: number, amountEth: string): Promise<TxResult> {
+export async function placeBid(
+  auctionId: number,
+  amountEth: string,
+  callbacks?: TxCallbacks
+): Promise<TxResult> {
   if (!amountEth) throw new Error("Iznos ponude je obavezan.");
+  await preflight(callbacks);
   const contract = await getContract(true);
+  callbacks?.onPhase?.("awaiting_signature");
   const tx = await contract.placeBid(auctionId, { value: parseEther(amountEth) });
+  callbacks?.onPhase?.("submitted", { txHash: tx.hash });
   const receipt = await tx.wait();
+  callbacks?.onPhase?.("confirmed", { txHash: tx.hash });
   return { txHash: tx.hash, receipt };
 }
 
-export async function endAuction(auctionId: number): Promise<TxResult> {
+export async function endAuction(auctionId: number, callbacks?: TxCallbacks): Promise<TxResult> {
+  await preflight(callbacks);
   const contract = await getContract(true);
+  callbacks?.onPhase?.("awaiting_signature");
   const tx = await contract.endAuction(auctionId);
+  callbacks?.onPhase?.("submitted", { txHash: tx.hash });
   const receipt = await tx.wait();
+  callbacks?.onPhase?.("confirmed", { txHash: tx.hash });
   return { txHash: tx.hash, receipt };
 }
 
-export async function withdrawFunds(): Promise<TxResult> {
+export async function withdrawFunds(callbacks?: TxCallbacks): Promise<TxResult> {
+  await preflight(callbacks);
   const contract = await getContract(true);
+  callbacks?.onPhase?.("awaiting_signature");
   const tx = await contract.withdraw();
+  callbacks?.onPhase?.("submitted", { txHash: tx.hash });
   const receipt = await tx.wait();
+  callbacks?.onPhase?.("confirmed", { txHash: tx.hash });
   return { txHash: tx.hash, receipt };
 }
 export const withdraw = withdrawFunds;
