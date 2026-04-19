@@ -15,6 +15,7 @@ import NotFound from "./pages/NotFound.tsx";
 import AuctionTest from "./components/AuctionTest";
 import Debug from "./pages/Debug.tsx";
 import { TxDebugPanel } from "./components/TxDebugPanel";
+import { AIAssistant } from "./components/AIAssistant";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
           <Sonner theme="dark" />
           <BrowserRouter>
             <TxDebugPanel />
+            <AIAssistant />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/marketplace" element={<Marketplace />} />
