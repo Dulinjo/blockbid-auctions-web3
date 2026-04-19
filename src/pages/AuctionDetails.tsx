@@ -27,6 +27,8 @@ const AuctionDetails = () => {
   const [ending, setEnding] = useState(false);
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
 
+  const meta = useMemo(() => (idIsValid ? getAuctionMetadata(auctionId) : null), [auctionId, idIsValid]);
+
   const refresh = async () => {
     if (!idIsValid) {
       setLoading(false);
@@ -135,8 +137,7 @@ const AuctionDetails = () => {
   const isSeller = wallet?.address.toLowerCase() === auction.seller.toLowerCase();
   const hasBidder = auction.highestBidder && auction.highestBidder !== "0x0000000000000000000000000000000000000000";
 
-  // Off-chain metadata bound to this on-chain auction id.
-  const meta = useMemo(() => getAuctionMetadata(auction.id), [auction.id]);
+  // Off-chain metadata bound to this on-chain auction id (computed above the early returns).
   const imageUrl = meta?.imageUrl || placeholder;
   const displayTitle = meta?.title || auction.title || `Auction #${auction.id}`;
 
