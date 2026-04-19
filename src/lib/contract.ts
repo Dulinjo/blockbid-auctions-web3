@@ -175,3 +175,69 @@ export async function getAllAuctions() {
 
   return auctions.sort((a, b) => b.id - a.id);
 }
+
+/* ------------------------------------------------------------------ */
+/* Compatibility layer for the rest of the app (Marketplace, Dashboard,
+   AuctionDetails, BidModal, CreateAuction, WalletContext, ContractInfo).
+   Keeps existing imports working without changing the demo logic above. */
+/* ------------------------------------------------------------------ */
+
+export type OnChainAuction = Awaited<ReturnType<typeof getAuction>>;
+
+export const EXPECTED_CHAIN_ID = 11155111; // Sepolia decimal
+export const EXPECTED_NETWORK_NAME = "Sepolia";
+
+export const shortenAddress = shortAddress;
+export const withdraw = withdrawFunds;
+
+export interface WalletInfo {
+  address: string;
+  network: string;
+  chainId: number;
+  balance: string;
+}
+
+export function isMetaMaskInstalled(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.ethereum);
+}
+
+export async function switchToSepolia() {
+  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: SEPOLIA_CHAIN_ID }],
+    });
+  } catch (err: any) {
+    if (err?.code === 4902) {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: SEPOLIA_CHAIN_ID,
+            chainName: "Sepolia Testnet",
+            nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
+            rpcUrls: ["https://sepolia.infura.io/v3/"],
+            blockExplorerUrls: ["https://sepolia.etherscan.io"],
+          },
+        ],
+      });
+    } else {
+      throw err;
+    }
+  }
+}
+
+export function parseTxError(err: unknown): string {
+  if (!err) return "Nepoznata greška.";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = err as any;
+  if (e?.code === 4001 || e?.code === "ACTION_REJECTED")
+    return "Transakcija odbijena u walletu.";
+  if (e?.shortMessage) return e.shortMessage;
+  if (e?.reason) return e.reason;
+  if (e?.data?.message) return e.data.message;
+  if (e?.message) return e.message;
+  return String(err);
+}
