@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
 import { getAllAuctions, OnChainAuction, shortenAddress, getPendingReturns, withdraw, parseTxError } from "@/lib/contract";
+import { getAllAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -11,24 +12,28 @@ import { Auction } from "@/lib/types";
 import placeholder from "@/assets/auction-1.jpg";
 import { toast } from "sonner";
 
-const toUiAuction = (a: OnChainAuction): Auction => ({
-  id: String(a.id),
-  title: a.title || `Auction #${a.id}`,
-  description: "On-chain auction managed by the BlockBid smart contract.",
-  category: "On-chain",
-  image: placeholder,
-  seller: a.seller,
-  startingPrice: parseFloat(a.startingPrice),
-  highestBid: parseFloat(a.highestBid),
-  highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
-  endsAt: a.endsAtMs,
-  status: a.ended ? "finalized" : a.active ? "active" : "ended",
-  bidCount: 0,
-});
+const toUiAuction = (a: OnChainAuction, meta: Record<number, AuctionMetadata>): Auction => {
+  const m = meta[a.id];
+  return {
+    id: String(a.id),
+    title: m?.title || a.title || `Auction #${a.id}`,
+    description: m?.description || "On-chain auction managed by the BlockBid smart contract.",
+    category: m?.category || "On-chain",
+    image: m?.imageUrl || placeholder,
+    seller: a.seller,
+    startingPrice: parseFloat(a.startingPrice),
+    highestBid: parseFloat(a.highestBid),
+    highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
+    endsAt: a.endsAtMs,
+    status: a.ended ? "finalized" : a.active ? "active" : "ended",
+    bidCount: 0,
+  };
+};
 
 const Dashboard = () => {
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
   const [auctions, setAuctions] = useState<OnChainAuction[]>([]);
+  const [meta, setMeta] = useState<Record<number, AuctionMetadata>>({});
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState("0");
   const [withdrawing, setWithdrawing] = useState(false);
@@ -42,6 +47,7 @@ const Dashboard = () => {
         getPendingReturns(wallet.address).catch(() => "0"),
       ]);
       setAuctions(list);
+      setMeta(getAllAuctionMetadata());
       setPending(p);
     } finally {
       setLoading(false);
@@ -175,28 +181,28 @@ const Dashboard = () => {
           <TabsContent value="created" className="mt-6">
             {myCreated.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myCreated.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {myCreated.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="You haven't created any auctions yet." />}
           </TabsContent>
           <TabsContent value="bids" className="mt-6">
             {myBids.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myBids.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {myBids.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="You're not the highest bidder on any auctions." />}
           </TabsContent>
           <TabsContent value="won" className="mt-6">
             {myWon.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {myWon.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {myWon.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="No won auctions yet." />}
           </TabsContent>
           <TabsContent value="ended" className="mt-6">
             {ended.length ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {ended.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a)} />)}
+                {ended.map((a) => <AuctionCard key={a.id} auction={toUiAuction(a, meta)} />)}
               </div>
             ) : <EmptyState text="None of your auctions have ended." />}
           </TabsContent>

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { getAuction, OnChainAuction, endAuction, parseTxError, shortenAddress, CONTRACT_ADDRESS } from "@/lib/contract";
+import { getAuctionMetadata } from "@/lib/auctionMetadata";
 import { Countdown } from "@/components/Countdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,8 @@ const AuctionDetails = () => {
   const [bidOpen, setBidOpen] = useState(false);
   const [ending, setEnding] = useState(false);
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
+
+  const meta = useMemo(() => (idIsValid ? getAuctionMetadata(auctionId) : null), [auctionId, idIsValid]);
 
   const refresh = async () => {
     if (!idIsValid) {
@@ -134,6 +137,10 @@ const AuctionDetails = () => {
   const isSeller = wallet?.address.toLowerCase() === auction.seller.toLowerCase();
   const hasBidder = auction.highestBidder && auction.highestBidder !== "0x0000000000000000000000000000000000000000";
 
+  // Off-chain metadata bound to this on-chain auction id (computed above the early returns).
+  const imageUrl = meta?.imageUrl || placeholder;
+  const displayTitle = meta?.title || auction.title || `Auction #${auction.id}`;
+
   return (
     <Layout>
       <div className="container py-8">
@@ -144,17 +151,25 @@ const AuctionDetails = () => {
         <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
           <div className="relative">
             <div className="aspect-square rounded-3xl overflow-hidden border border-border bg-card">
-              <img src={placeholder} alt={auction.title} width={800} height={800} className="h-full w-full object-cover" />
+              <img src={imageUrl} alt={displayTitle} width={800} height={800} className="h-full w-full object-cover" />
             </div>
             <div className="absolute top-4 left-4">
               <StatusBadge status={status} />
             </div>
+            {meta?.sourceType && (
+              <div className="absolute top-4 right-4 text-[10px] px-2 py-0.5 rounded-full bg-background/80 backdrop-blur border border-border text-muted-foreground">
+                {meta.sourceType === "ai" ? "AI generated" : "Uploaded"} · off-chain
+              </div>
+            )}
           </div>
 
           <div className="space-y-6">
             <div>
               <div className="text-xs font-mono text-muted-foreground mb-2">On-chain • #{auction.id}</div>
-              <h1 className="text-3xl md:text-4xl font-bold leading-tight">{auction.title || `Auction #${auction.id}`}</h1>
+              <h1 className="text-3xl md:text-4xl font-bold leading-tight">{displayTitle}</h1>
+              {meta?.description && (
+                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{meta.description}</p>
+              )}
               <div className="mt-3 text-sm text-muted-foreground flex items-center gap-2">
                 <User className="h-3.5 w-3.5" /> Seller <span className="font-mono text-foreground">{shortenAddress(auction.seller)}</span>
               </div>

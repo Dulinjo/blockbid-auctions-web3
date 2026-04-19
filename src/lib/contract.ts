@@ -244,6 +244,11 @@ export interface TxResult {
   receipt: any;
 }
 
+export interface CreateAuctionResult extends TxResult {
+  /** On-chain auction ID assigned by the contract (parsed from AuctionCreated event). */
+  auctionId: number | null;
+}
+
 export type TxPhase = "preflight" | "awaiting_signature" | "submitted" | "confirmed";
 
 export interface TxCallbacks {
@@ -268,7 +273,7 @@ export async function createAuction(
   startingBidEth?: string,
   durationInMinutes?: number,
   callbacks?: TxCallbacks
-): Promise<TxResult> {
+): Promise<CreateAuctionResult> {
   let title: string;
   let priceEth: string;
   let minutes: number;
@@ -293,8 +298,37 @@ export async function createAuction(
   callbacks?.onPhase?.("submitted", { txHash: tx.hash });
   const receipt = await tx.wait();
   callbacks?.onPhase?.("confirmed", { txHash: tx.hash });
-  return { txHash: tx.hash, receipt };
+
+  // Parse AuctionCreated event from receipt to learn the on-chain ID
+  // assigned to the new auction. This ID is the source of truth that
+  // off-chain metadata (image, description, ...) is keyed against.
+  let auctionId: number | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const logs = (receipt?.logs ?? []) as any[];
+    for (const log of logs) {
+      try {
+        const parsed = contract.interface.parseLog(log);
+        if (parsed?.name === "AuctionCreated") {
+          auctionId = Number(parsed.args.auctionId);
+          break;
+        }
+      } catch {
+        /* not our event, keep scanning */
+      }
+    }
+    if (auctionId === null) {
+      // Fallback: assume the latest auctionCount is the new auction.
+      auctionId = await getAuctionCount();
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[createAuction] could not resolve new auctionId", e);
+  }
+
+  return { txHash: tx.hash, receipt, auctionId };
 }
+
 
 export async function placeBid(
   auctionId: number,

@@ -12,12 +12,14 @@ import { useNavigate } from "react-router-dom";
 import { Wallet, Loader2, CheckCircle2, AlertCircle, ExternalLink, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { AuctionImageInput, type AuctionImageState } from "@/components/AuctionImageInput";
+import { saveAuctionMetadata } from "@/lib/auctionMetadata";
 
 const CreateAuction = () => {
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
   const navigate = useNavigate();
   const [step, setStep] = useState<"form" | "pending" | "success" | "error">("form");
   const [tx, setTx] = useState("");
+  const [createdAuctionId, setCreatedAuctionId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   const [image, setImage] = useState<AuctionImageState>({ source: "none", url: null });
@@ -40,9 +42,17 @@ const CreateAuction = () => {
     setErrorMsg("");
     try {
       const durationMinutes = Math.max(1, Math.floor(parseFloat(form.durationHours) * 60));
-      const { txHash } = await createAuction(
+      // Snapshot the form state at submit time so async resets can't race
+      // and we always bind metadata to the values the user actually saw.
+      const snapshot = {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        category: form.category,
+        image: { ...image },
+      };
+      const { txHash, auctionId } = await createAuction(
         {
-          title: form.title.trim(),
+          title: snapshot.title,
           startingPriceEth: form.startingPrice,
           durationMinutes,
         },
@@ -59,6 +69,35 @@ const CreateAuction = () => {
         }
       );
       setTx(txHash);
+      setCreatedAuctionId(auctionId);
+
+      // Bind off-chain metadata to the new on-chain auction id.
+      if (auctionId !== null) {
+        saveAuctionMetadata({
+          auctionId,
+          imageUrl: snapshot.image.url,
+          sourceType:
+            snapshot.image.source === "upload" || snapshot.image.source === "ai"
+              ? snapshot.image.source
+              : null,
+          title: snapshot.title,
+          description: snapshot.description || undefined,
+          category: snapshot.category,
+          prompt: snapshot.image.prompt,
+          fileName: snapshot.image.fileName,
+          createdAt: Date.now(),
+        });
+        // eslint-disable-next-line no-console
+        console.info("[CreateAuction] bound metadata", {
+          auctionId,
+          sourceType: snapshot.image.source,
+          hasImage: Boolean(snapshot.image.url),
+        });
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn("[CreateAuction] auctionId could not be resolved; metadata not saved");
+      }
+
       setStep("success");
       toast.success("Auction confirmed on-chain");
     } catch (err) {
@@ -226,6 +265,9 @@ const CreateAuction = () => {
             <h3 className="mt-5 text-2xl font-bold">Auction created</h3>
             <p className="text-muted-foreground text-sm mt-2">Your auction is now live on the blockchain.</p>
             <div className="mt-6 inline-flex flex-col gap-2 text-xs font-mono">
+              {createdAuctionId !== null && (
+                <span className="text-foreground">Auction ID: <span className="text-primary-glow">#{createdAuctionId}</span></span>
+              )}
               <a
                 href={`https://sepolia.etherscan.io/tx/${tx}`}
                 target="_blank" rel="noreferrer"
@@ -234,11 +276,25 @@ const CreateAuction = () => {
                 Tx: {tx.slice(0, 16)}...{tx.slice(-8)} <ExternalLink className="h-3 w-3" />
               </a>
             </div>
-            <div className="flex gap-3 justify-center mt-8">
-              <Button onClick={() => navigate("/marketplace")} className="bg-gradient-primary text-primary-foreground">
-                View Marketplace
+            <div className="flex gap-3 justify-center mt-8 flex-wrap">
+              {createdAuctionId !== null && (
+                <Button onClick={() => navigate(`/auction/${createdAuctionId}`)} className="bg-gradient-primary text-primary-foreground">
+                  View auction
+                </Button>
+              )}
+              <Button onClick={() => navigate("/marketplace")} variant="outline">
+                Marketplace
               </Button>
-              <Button variant="outline" onClick={() => { setStep("form"); setImage({ source: "none", url: null }); setForm({ title: "", description: "", category: "Digital Art", startingPrice: "", durationHours: "24" }); }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setStep("form");
+                  setTx("");
+                  setCreatedAuctionId(null);
+                  setImage({ source: "none", url: null });
+                  setForm({ title: "", description: "", category: "Digital Art", startingPrice: "", durationHours: "24" });
+                }}
+              >
                 Create another
               </Button>
             </div>
