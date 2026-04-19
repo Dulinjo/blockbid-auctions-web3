@@ -22,7 +22,7 @@ const CreateAuction = () => {
   const [createdAuctionId, setCreatedAuctionId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [image, setImage] = useState<AuctionImageState>({ source: "none", url: null });
+  const [image, setImage] = useState<AuctionImageState>({ source: "none", url: null, uploading: false });
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -34,6 +34,14 @@ const CreateAuction = () => {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!wallet) return;
+    if (image.uploading) {
+      toast.error("Sačekaj da se upload slike završi");
+      return;
+    }
+    if (image.source === "upload" && image.url?.startsWith("data:")) {
+      toast.error("Slika još nije sačuvana u cloud storage. Pokušaj ponovo za par sekundi.");
+      return;
+    }
     if (!form.title.trim() || !form.startingPrice) {
       toast.error("Please fill in title and starting price");
       return;
@@ -75,7 +83,7 @@ const CreateAuction = () => {
       if (auctionId !== null) {
         await saveAuctionMetadata({
           auctionId,
-          imageUrl: snapshot.image.url,
+          imageUrl: snapshot.image.url?.startsWith("data:") ? null : snapshot.image.url,
           sourceType:
             snapshot.image.source === "upload" || snapshot.image.source === "ai"
               ? snapshot.image.source
@@ -305,7 +313,7 @@ const CreateAuction = () => {
                   setStep("form");
                   setTx("");
                   setCreatedAuctionId(null);
-                  setImage({ source: "none", url: null });
+                  setImage({ source: "none", url: null, uploading: false });
                   setForm({ title: "", description: "", category: "Digital Art", startingPrice: "", durationHours: "24" });
                 }}
               >
