@@ -197,7 +197,8 @@ const AuctionDetails = () => {
                 <p className="text-sm text-muted-foreground mt-2 leading-relaxed break-words">{meta.description}</p>
               )}
               <div className="mt-3 text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
-                <User className="h-3.5 w-3.5 shrink-0" /> Seller <span className="font-mono text-foreground truncate">{shortenAddress(auction.seller)}</span>
+                <User className="h-3.5 w-3.5 shrink-0" /> Seller
+                <EtherscanLink kind="address" address={auction.seller} variant="link" />
               </div>
             </div>
 
@@ -214,9 +215,10 @@ const AuctionDetails = () => {
               </div>
 
               {hasBidder && (
-                <div className="text-xs text-muted-foreground flex items-center gap-2 pt-2 border-t border-border/60">
+                <div className="text-xs text-muted-foreground flex items-center gap-2 pt-2 border-t border-border/60 flex-wrap">
                   <Trophy className="h-3.5 w-3.5 text-warning" />
-                  Leading bidder: <span className="font-mono text-foreground">{shortenAddress(auction.highestBidder)}</span>
+                  Leading bidder:
+                  <EtherscanLink kind="address" address={auction.highestBidder} variant="link" />
                 </div>
               )}
 
@@ -269,26 +271,39 @@ const AuctionDetails = () => {
               )}
             </div>
 
-            <div className="rounded-xl border border-border bg-card/40 p-4 text-xs">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <FileCode2 className="h-3.5 w-3.5" /> Smart contract
-              </div>
-              <div className="grid grid-cols-1 gap-2 font-mono">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Contract</span>
-                  <a
-                    href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`}
-                    target="_blank" rel="noreferrer"
-                    className="text-primary hover:text-primary-glow flex items-center gap-1"
-                  >
-                    {shortenAddress(CONTRACT_ADDRESS, 6)} <ExternalLink className="h-3 w-3" />
-                  </a>
+            {/* Blockchain Verification — make on-chain provenance obvious. */}
+            <div className="rounded-xl border border-primary/30 bg-gradient-card p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center">
+                  <ShieldCheck className="h-4 w-4 text-primary-glow" />
                 </div>
-                <div className="flex justify-between">
+                <div>
+                  <div className="text-sm font-semibold">Blockchain Verification</div>
+                  <div className="text-[11px] text-muted-foreground">Auction actions are recorded through the smart contract on Sepolia.</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-xs font-mono pt-1 border-t border-border/60">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1.5"><FileCode2 className="h-3 w-3" /> Contract</span>
+                  <EtherscanLink kind="contract" variant="link" showCopy />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Auction ID</span>
+                  <span>#{auction.id}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground">Status</span>
                   <span>{status}</span>
                 </div>
               </div>
+              <a
+                href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 hover:text-primary-glow transition-colors"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Open contract on Etherscan
+              </a>
             </div>
           </div>
         </div>
