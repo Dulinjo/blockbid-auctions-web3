@@ -9,6 +9,7 @@ import { Auction } from "@/lib/types";
 import { getAllAuctions, OnChainAuction } from "@/lib/contract";
 import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
+import { AuctionStories } from "@/components/AuctionStories";
 import placeholder from "@/assets/auction-1.jpg";
 
 const toUiAuction = (
@@ -35,6 +36,7 @@ const toUiAuction = (
 const Index = () => {
   const { wallet, connect } = useWallet();
   const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [allAuctions, setAllAuctions] = useState<Auction[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -51,15 +53,27 @@ const Index = () => {
           if (aActive && bActive) return a.endsAtMs - b.endsAtMs;
           return b.endsAtMs - a.endsAtMs;
         });
-        setAuctions(sorted.slice(0, 3).map((a) => toUiAuction(a, meta)));
+        const ui = sorted.map((a) => toUiAuction(a, meta));
+        setAllAuctions(ui);
+        setAuctions(ui.slice(0, 3));
       } catch {
         setAuctions([]);
+        setAllAuctions([]);
       }
     })();
   }, []);
 
   return (
     <Layout>
+      {/* Quick-access auction stories — directly below the top header */}
+      {allAuctions.length > 0 && (
+        <div className="border-b border-border/40 bg-background/40 backdrop-blur-sm">
+          <div className="container py-4">
+            <AuctionStories auctions={allAuctions} />
+          </div>
+        </div>
+      )}
+
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-hero" />
