@@ -202,9 +202,14 @@ const AuctionDetails = () => {
               </div>
 
               {!wallet ? (
-                <Button size="lg" onClick={connect} className="w-full bg-gradient-primary text-primary-foreground font-semibold h-12 glow-primary">
-                  <Wallet className="mr-2 h-4 w-4" /> Connect MetaMask to Bid
-                </Button>
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground text-center">
+                    You're viewing this auction in <span className="text-foreground font-medium">read-only mode</span>. Connect a wallet to place a bid.
+                  </div>
+                  <Button size="lg" onClick={connect} className="w-full bg-gradient-primary text-primary-foreground font-semibold h-12 glow-primary">
+                    <Wallet className="mr-2 h-4 w-4" /> Connect Wallet to Bid
+                  </Button>
+                </div>
               ) : !correctNetwork ? (
                 <Button size="lg" onClick={switchNetwork} variant="outline" className="w-full border-warning/40 text-warning hover:bg-warning/10 h-12">
                   <AlertTriangle className="mr-2 h-4 w-4" /> Switch to Sepolia

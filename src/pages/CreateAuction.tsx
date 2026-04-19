@@ -113,16 +113,30 @@ const CreateAuction = () => {
   if (!wallet) {
     return (
       <Layout>
-        <div className="container py-24">
-          <div className="max-w-md mx-auto text-center rounded-2xl border border-border bg-gradient-card p-10">
+        <div className="container py-16 md:py-24 max-w-3xl">
+          <div className="mb-8 text-center md:text-left">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/40 px-3 py-1 text-[11px] font-mono text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-warning" /> Read-only mode
+            </div>
+            <h1 className="text-3xl md:text-4xl font-bold mt-4">Create an auction</h1>
+            <p className="text-muted-foreground mt-2 text-sm md:text-base">
+              Listing an item is an on-chain action. Connect any EVM wallet (MetaMask, Coinbase, Rabby, WalletConnect) to sign the transaction on Sepolia.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-gradient-card p-8 md:p-10 text-center">
             <div className="h-14 w-14 rounded-full bg-primary/15 mx-auto flex items-center justify-center mb-4">
               <Wallet className="h-7 w-7 text-primary-glow" />
             </div>
-            <h2 className="text-2xl font-bold">Connect your wallet</h2>
-            <p className="text-muted-foreground mt-2 text-sm">Creating an auction requires a connected MetaMask wallet to sign the transaction.</p>
-            <Button onClick={connect} className="mt-6 bg-gradient-primary text-primary-foreground font-semibold w-full h-11 glow-primary">
-              <Wallet className="mr-2 h-4 w-4" /> Connect MetaMask
+            <h2 className="text-xl md:text-2xl font-bold">Connect a wallet to continue</h2>
+            <p className="text-muted-foreground mt-2 text-sm max-w-md mx-auto">
+              Browsing the marketplace is free and public. A wallet is only required to create auctions, place bids, finalize, or withdraw funds.
+            </p>
+            <Button onClick={connect} className="mt-6 bg-gradient-primary text-primary-foreground font-semibold w-full sm:w-auto h-11 px-8 glow-primary">
+              <Wallet className="mr-2 h-4 w-4" /> Connect Wallet
             </Button>
+            <div className="mt-6 text-xs text-muted-foreground">
+              Just looking around? <a href="/marketplace" className="text-primary hover:text-primary-glow underline-offset-2 hover:underline">Browse auctions</a> instead.
+            </div>
           </div>
         </div>
       </Layout>
@@ -249,7 +263,7 @@ const CreateAuction = () => {
           <div className="rounded-2xl border border-border bg-gradient-card p-12 text-center">
             <Loader2 className="h-14 w-14 animate-spin text-primary mx-auto" />
             <h3 className="mt-5 text-xl font-semibold">Deploying auction to blockchain</h3>
-            <p className="text-muted-foreground text-sm mt-2">Confirm in MetaMask, then we'll wait for the network.</p>
+            <p className="text-muted-foreground text-sm mt-2">Confirm in your wallet, then we'll wait for the network.</p>
             <div className="mt-6 inline-flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-full bg-secondary border border-border">
               <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" />
               Pending on {wallet.network}

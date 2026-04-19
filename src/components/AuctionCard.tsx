@@ -33,13 +33,22 @@ export const AuctionCard = ({ auction }: { auction: Auction }) => (
         <p className="text-xs text-muted-foreground font-mono mt-1">by {auction.seller}</p>
       </div>
 
-      <div className="flex items-end justify-between pt-2 border-t border-border/60">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Current bid</div>
-          <div className="font-mono text-lg font-bold text-gradient-primary">{auction.highestBid} ETH</div>
+      <div className="flex flex-col gap-3 pt-2 border-t border-border/60 sm:flex-row sm:items-end sm:justify-between sm:gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {auction.highestBid > 0 ? "Current bid" : "Starting price"}
+          </div>
+          <div className="font-mono text-lg font-bold text-gradient-primary truncate">
+            {auction.highestBid > 0 ? auction.highestBid : auction.startingPrice} ETH
+          </div>
+          {auction.highestBid > 0 && (
+            <div className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
+              start {auction.startingPrice} ETH
+            </div>
+          )}
         </div>
-        <div className="text-right">
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground justify-end">
+        <div className="sm:text-right min-w-0">
+          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground sm:justify-end">
             <Clock className="h-3 w-3" /> Ends in
           </div>
           <Countdown target={auction.endsAt} compact />

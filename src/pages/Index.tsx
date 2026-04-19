@@ -62,7 +62,7 @@ const Index = () => {
               <span className="text-gradient-primary">Auctions on Blockchain</span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Create auctions, place bids, and verify outcomes through smart contracts and MetaMask.
+              Browse auctions freely — connect any EVM wallet when you're ready to bid or list an item.
               Every bid is provable. Every result is final.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
@@ -116,7 +116,7 @@ const Index = () => {
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { icon: ShieldCheck, title: "Transparent Bidding", desc: "Every bid is recorded on-chain and publicly auditable." },
-            { icon: Wallet, title: "Wallet-Based Identity", desc: "Participate using MetaMask. No accounts, no passwords." },
+            { icon: Wallet, title: "Wallet-Based Identity", desc: "Use any EVM wallet — MetaMask, Coinbase, Rabby or WalletConnect. No accounts, no passwords." },
             { icon: FileCode2, title: "Smart Contract Logic", desc: "Auction rules enforced by Solidity, not middlemen." },
             { icon: Activity, title: "Real-Time Status", desc: "Live countdowns and instant bid updates from the chain." },
           ].map((f) => (

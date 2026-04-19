@@ -26,7 +26,7 @@ export const debugBus = {
 const phaseLabel: Record<string, string> = {
   idle: "Idle",
   preflight: "Checking wallet & network…",
-  awaiting_signature: "Waiting for MetaMask signature…",
+  awaiting_signature: "Waiting for wallet signature…",
   submitted: "Tx submitted, waiting for confirmation…",
   confirmed: "Confirmed on-chain ✓",
   error: "Error",

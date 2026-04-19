@@ -75,16 +75,30 @@ const Dashboard = () => {
   if (!wallet) {
     return (
       <Layout>
-        <div className="container py-24">
-          <div className="max-w-md mx-auto text-center rounded-2xl border border-border bg-gradient-card p-10">
+        <div className="container py-16 md:py-24 max-w-3xl">
+          <div className="mb-8 text-center md:text-left">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/40 px-3 py-1 text-[11px] font-mono text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-warning" /> Read-only mode
+            </div>
+            <h1 className="text-3xl md:text-4xl font-bold mt-4">Your dashboard</h1>
+            <p className="text-muted-foreground mt-2 text-sm md:text-base">
+              Connect a wallet to view your auctions, bids, won items, and pending returns.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-gradient-card p-8 md:p-10 text-center">
             <div className="h-14 w-14 rounded-full bg-primary/15 mx-auto flex items-center justify-center mb-4">
               <Wallet className="h-7 w-7 text-primary-glow" />
             </div>
-            <h2 className="text-2xl font-bold">Connect to view dashboard</h2>
-            <p className="text-muted-foreground mt-2 text-sm">Track your auctions, bids, and winnings on-chain.</p>
-            <Button onClick={connect} className="mt-6 bg-gradient-primary text-primary-foreground font-semibold w-full h-11 glow-primary">
-              <Wallet className="mr-2 h-4 w-4" /> Connect MetaMask
+            <h2 className="text-xl md:text-2xl font-bold">Connect a wallet to continue</h2>
+            <p className="text-muted-foreground mt-2 text-sm max-w-md mx-auto">
+              Your dashboard is private to your wallet address. Connect MetaMask, Coinbase, Rabby, or WalletConnect to see your activity.
+            </p>
+            <Button onClick={connect} className="mt-6 bg-gradient-primary text-primary-foreground font-semibold w-full sm:w-auto h-11 px-8 glow-primary">
+              <Wallet className="mr-2 h-4 w-4" /> Connect Wallet
             </Button>
+            <div className="mt-6 text-xs text-muted-foreground">
+              <a href="/marketplace" className="text-primary hover:text-primary-glow underline-offset-2 hover:underline">Browse all auctions</a> — no wallet needed.
+            </div>
           </div>
         </div>
       </Layout>
