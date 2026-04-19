@@ -19,6 +19,8 @@ export interface AuctionImageState {
   source: AuctionImageSource;
   /** Data URL or remote URL used for preview + off-chain metadata */
   url: string | null;
+  /** True while an uploaded file is still being pushed to Cloud storage */
+  uploading?: boolean;
   /** Original filename when source === "upload" */
   fileName?: string;
   /** Prompt used when source === "ai" */
@@ -90,12 +92,15 @@ export function AuctionImageInput({ value, onChange }: Props) {
         return;
       }
       // Show instant local preview while we upload to Cloud.
+      let localPreview: string | null = null;
       const reader = new FileReader();
       reader.onload = () => {
+        localPreview = String(reader.result);
         onChange({
           source: "upload",
-          url: String(reader.result),
+          url: localPreview,
           fileName: file.name,
+          uploading: true,
         });
       };
       reader.onerror = () => setError("Could not read file.");
@@ -107,12 +112,19 @@ export function AuctionImageInput({ value, onChange }: Props) {
           source: "upload",
           url: publicUrl,
           fileName: file.name,
+          uploading: false,
         });
         toast.success("Image uploaded");
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error("[AuctionImageInput] cloud upload failed", e);
         setError("Could not upload image. Please try again.");
+        onChange({
+          source: "upload",
+          url: localPreview,
+          fileName: file.name,
+          uploading: false,
+        });
         toast.error("Image upload failed");
       }
     },
@@ -133,7 +145,7 @@ export function AuctionImageInput({ value, onChange }: Props) {
   };
 
   const remove = () => {
-    onChange({ source: "none", url: null });
+    onChange({ source: "none", url: null, uploading: false });
     setError(null);
   };
 
@@ -199,9 +211,15 @@ export function AuctionImageInput({ value, onChange }: Props) {
               alt={value.prompt || value.fileName || "Auction item"}
               className="absolute inset-0 h-full w-full object-cover"
             />
+            {value.uploading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-sm z-10">
+                <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                <p className="mt-2 text-xs text-foreground">Uploading image…</p>
+              </div>
+            )}
             <div className="absolute top-2 left-2 flex gap-1">
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-background/80 backdrop-blur border border-border text-foreground">
-                {value.source === "ai" ? "AI generated" : "Uploaded"}
+                {value.source === "ai" ? "AI generated" : value.uploading ? "Uploading" : "Uploaded"}
               </span>
             </div>
             <button

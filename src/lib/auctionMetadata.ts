@@ -18,6 +18,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 const STORAGE_KEY = "blockbid_auction_metadata_v2";
+const BUCKET = "auction-images";
 
 export type AuctionImageSourceType = "upload" | "ai";
 
@@ -81,6 +82,94 @@ function fromRow(row: any): AuctionMetadata {
   };
 }
 
+function readLegacyStore(): Store {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Store) : {};
+  } catch {
+    return {};
+  }
+}
+
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  try {
+    const [header, base64] = dataUrl.split(",");
+    if (!header || !base64) return null;
+    const mime = header.match(/^data:(.*?);base64$/)?.[1] ?? "image/png";
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+function inferImageExtension(dataUrl: string, fileName?: string) {
+  const fromName = fileName?.split(".").pop()?.toLowerCase();
+  if (fromName) return fromName === "jpeg" ? "jpg" : fromName;
+  const mime = dataUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,/)?.[1]?.toLowerCase();
+  if (!mime) return "png";
+  if (mime === "jpeg") return "jpg";
+  if (mime === "svg+xml") return "svg";
+  return mime;
+}
+
+async function uploadRecoveredImage(auctionId: number, imageUrl: string, fileName?: string) {
+  const blob = dataUrlToBlob(imageUrl);
+  if (!blob) return null;
+  const ext = inferImageExtension(imageUrl, fileName);
+  const path = `uploads/recovered-${auctionId}-${Date.now()}.${ext}`;
+  const file = new File([blob], fileName ?? `auction-${auctionId}.${ext}`, {
+    type: blob.type || `image/${ext}`,
+  });
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type,
+  });
+  if (error) throw error;
+  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+async function repairMissingCloudImages(rows: any[]) {
+  if (typeof window === "undefined" || rows.length === 0) return rows;
+  const local = { ...readLegacyStore(), ...read() };
+  for (const row of rows) {
+    if (row.image_url || row.source_type !== "upload") continue;
+    const localMeta = local[String(row.auction_id)];
+    const localImage = localMeta?.imageUrl;
+    if (!localImage || !localImage.startsWith("data:")) continue;
+    try {
+      const publicUrl = await uploadRecoveredImage(Number(row.auction_id), localImage, localMeta.fileName);
+      if (!publicUrl) continue;
+      const { error } = await supabase.from("auction_metadata").upsert(
+        {
+          auction_id: Number(row.auction_id),
+          image_url: publicUrl,
+          source_type: row.source_type ?? localMeta.sourceType ?? "upload",
+          title: row.title ?? localMeta.title ?? null,
+          description: row.description ?? localMeta.description ?? null,
+          category: row.category ?? localMeta.category ?? null,
+          prompt: row.prompt ?? localMeta.prompt ?? null,
+          file_name: row.file_name ?? localMeta.fileName ?? null,
+        },
+        { onConflict: "auction_id" }
+      );
+      if (error) throw error;
+      row.image_url = publicUrl;
+      row.file_name = row.file_name ?? localMeta.fileName ?? null;
+      console.info("[auctionMetadata] repaired missing cloud image", { auctionId: row.auction_id });
+    } catch (e) {
+      console.warn("[auctionMetadata] failed to repair cloud image", { auctionId: row.auction_id, error: e });
+    }
+  }
+  return rows;
+}
+
 export function getAuctionMetadata(auctionId: number): AuctionMetadata | null {
   if (!Number.isInteger(auctionId) || auctionId <= 0) return null;
   const store = read();
@@ -112,8 +201,9 @@ export async function refreshAuctionMetadata(): Promise<Record<number, AuctionMe
       .from("auction_metadata")
       .select("*");
     if (error) throw error;
+    const rows = await repairMissingCloudImages(data ?? []);
     const next: Store = {};
-    for (const row of data ?? []) {
+    for (const row of rows) {
       const m = fromRow(row);
       if (Number.isInteger(m.auctionId) && m.auctionId > 0) {
         next[String(m.auctionId)] = m;
@@ -186,7 +276,8 @@ export async function fetchAuctionMetadata(auctionId: number): Promise<AuctionMe
       .maybeSingle();
     if (error) throw error;
     if (!data) return getAuctionMetadata(auctionId);
-    const meta = fromRow(data);
+    const [row] = await repairMissingCloudImages([data]);
+    const meta = fromRow(row);
     const store = read();
     store[String(meta.auctionId)] = meta;
     write(store);
