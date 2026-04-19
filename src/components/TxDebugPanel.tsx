@@ -33,7 +33,7 @@ const phaseLabel: Record<string, string> = {
 };
 
 export const TxDebugPanel = () => {
-  const { wallet, correctNetwork } = useWallet();
+  const { wallet, correctNetwork, walletType, isReadOnly } = useWallet();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<DebugStatus>({ phase: "idle" });
 
@@ -91,6 +91,16 @@ export const TxDebugPanel = () => {
           ) : (
             <span className="text-muted-foreground">not connected</span>
           )}
+        </Row>
+        <Row label="Provider">
+          <span className={isReadOnly ? "text-muted-foreground" : "text-foreground"}>
+            {walletType ?? (isReadOnly ? "read-only (public RPC)" : "—")}
+          </span>
+        </Row>
+        <Row label="Mode">
+          <span className={isReadOnly ? "text-warning" : "text-success"}>
+            {isReadOnly ? "read-only" : "wallet connected"}
+          </span>
         </Row>
         <Row label="Chain">
           <span className={correctNetwork ? "text-success" : "text-warning"}>

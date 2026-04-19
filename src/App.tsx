@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Web3Providers } from "@/providers/Web3Providers";
 import { WalletProvider } from "@/contexts/WalletContext";
 import Index from "./pages/Index.tsx";
 import Marketplace from "./pages/Marketplace.tsx";
@@ -19,27 +20,29 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <WalletProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner theme="dark" />
-        <BrowserRouter>
-          <TxDebugPanel />
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/marketplace" element={<Marketplace />} />
-            <Route path="/auction/:id" element={<AuctionDetails />} />
-            <Route path="/create" element={<CreateAuction />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/contract" element={<ContractInfo />} />
-            <Route path="/demo" element={<AuctionTest />} />
-            <Route path="/debug" element={<Debug />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </WalletProvider>
+    <Web3Providers>
+      <WalletProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner theme="dark" />
+          <BrowserRouter>
+            <TxDebugPanel />
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/marketplace" element={<Marketplace />} />
+              <Route path="/auction/:id" element={<AuctionDetails />} />
+              <Route path="/create" element={<CreateAuction />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/contract" element={<ContractInfo />} />
+              <Route path="/demo" element={<AuctionTest />} />
+              <Route path="/debug" element={<Debug />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </WalletProvider>
+    </Web3Providers>
   </QueryClientProvider>
 );
 

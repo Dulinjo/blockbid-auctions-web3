@@ -34,6 +34,24 @@ declare global {
   }
 }
 
+/**
+ * EIP-1193 provider used for writes. Defaults to window.ethereum (MetaMask)
+ * but can be overridden by the wallet layer (wagmi connector, Coinbase,
+ * WalletConnect, Rabby, etc.).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _activeWriteProvider: any | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setActiveWalletProvider(provider: any | null) {
+  _activeWriteProvider = provider;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getWriteEip1193(): any | null {
+  if (_activeWriteProvider) return _activeWriteProvider;
+  if (typeof window !== "undefined" && window.ethereum) return window.ethereum;
+  return null;
+}
+
 export function shortAddress(address?: string, chars = 4) {
   if (!address) return "";
   return `${address.slice(0, 2 + chars)}...${address.slice(-chars)}`;
@@ -52,9 +70,15 @@ export function isMetaMaskInstalled(): boolean {
   return Boolean(window.ethereum);
 }
 
+/** True when any EVM wallet (injected or wagmi-connected) is available for writes. */
+export function hasAnyWallet(): boolean {
+  return Boolean(getWriteEip1193());
+}
+
 export async function getProvider() {
-  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
-  return new BrowserProvider(window.ethereum);
+  const eip = getWriteEip1193();
+  if (!eip) throw new Error("Wallet nije povezan.");
+  return new BrowserProvider(eip);
 }
 
 export async function getSigner() {
@@ -92,17 +116,19 @@ export async function getNetworkInfo() {
 }
 
 export async function ensureSepoliaNetwork() {
-  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
-  const chainId = await window.ethereum.request({ method: "eth_chainId" });
+  const eip = getWriteEip1193();
+  if (!eip) throw new Error("Wallet nije povezan.");
+  const chainId = await eip.request({ method: "eth_chainId" });
   if (chainId !== SEPOLIA_CHAIN_ID) {
-    throw new Error("Poveži MetaMask na Sepolia mrežu.");
+    throw new Error("Poveži wallet na Sepolia mrežu.");
   }
 }
 
 export async function switchToSepolia() {
-  if (!window.ethereum) throw new Error("MetaMask nije instaliran.");
+  const eip = getWriteEip1193();
+  if (!eip) throw new Error("Wallet nije povezan.");
   try {
-    await window.ethereum.request({
+    await eip.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: SEPOLIA_CHAIN_ID }],
     });
@@ -110,7 +136,7 @@ export async function switchToSepolia() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const e = err as any;
     if (e?.code === 4902) {
-      await window.ethereum.request({
+      await eip.request({
         method: "wallet_addEthereumChain",
         params: [
           {
@@ -129,19 +155,20 @@ export async function switchToSepolia() {
 }
 
 export async function getContract(withSigner = false) {
-  // Writes require MetaMask + Sepolia. Reads use a public RPC fallback so
-  // visitors without a wallet (or on a wrong network) can still browse.
+  // Writes require an active wallet (any EVM connector) on Sepolia.
+  // Reads use the active wallet's provider when on Sepolia, else the public RPC fallback.
   if (withSigner) {
     await ensureSepoliaNetwork();
     const provider = await getProvider();
     const signer = await provider.getSigner();
     return new Contract(CONTRACT_ADDRESS, abi, signer);
   }
-  if (window.ethereum) {
+  const eip = getWriteEip1193();
+  if (eip) {
     try {
-      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      const chainId = await eip.request({ method: "eth_chainId" });
       if (chainId === SEPOLIA_CHAIN_ID) {
-        const provider = new BrowserProvider(window.ethereum);
+        const provider = new BrowserProvider(eip);
         return new Contract(CONTRACT_ADDRESS, abi, provider);
       }
     } catch {
@@ -257,7 +284,7 @@ export interface TxCallbacks {
 
 async function preflight(callbacks?: TxCallbacks) {
   callbacks?.onPhase?.("preflight");
-  if (!isMetaMaskInstalled()) throw new Error("MetaMask nije instaliran.");
+  if (!hasAnyWallet()) throw new Error("Wallet nije povezan.");
   await ensureSepoliaNetwork();
 }
 
