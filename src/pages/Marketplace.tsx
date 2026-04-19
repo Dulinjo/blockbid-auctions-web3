@@ -3,7 +3,7 @@ import { Layout } from "@/components/Layout";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Auction, AuctionStatus } from "@/lib/types";
 import { getAllAuctions, OnChainAuction, CONTRACT_ADDRESS } from "@/lib/contract";
-import { getAllAuctionMetadata } from "@/lib/auctionMetadata";
+import { getAllAuctionMetadata, refreshAuctionMetadata } from "@/lib/auctionMetadata";
 import { Input } from "@/components/ui/input";
 import { Search, SlidersHorizontal, RefreshCw, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,8 +43,10 @@ const Marketplace = () => {
     setLoading(true);
     setError(null);
     try {
-      const list = await getAllAuctions();
-      const meta = getAllAuctionMetadata();
+      const [list, meta] = await Promise.all([
+        getAllAuctions(),
+        refreshAuctionMetadata(),
+      ]);
       setAuctions(list.map((a) => toUiAuction(a, meta)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load auctions");

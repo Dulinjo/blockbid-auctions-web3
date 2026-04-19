@@ -73,7 +73,7 @@ const CreateAuction = () => {
 
       // Bind off-chain metadata to the new on-chain auction id.
       if (auctionId !== null) {
-        saveAuctionMetadata({
+        await saveAuctionMetadata({
           auctionId,
           imageUrl: snapshot.image.url,
           sourceType:

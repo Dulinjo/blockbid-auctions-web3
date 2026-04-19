@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useWallet } from "@/contexts/WalletContext";
 import { getAllAuctions, OnChainAuction, shortenAddress, getPendingReturns, withdraw, parseTxError } from "@/lib/contract";
-import { getAllAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
+import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -42,12 +42,13 @@ const Dashboard = () => {
     if (!wallet) return;
     setLoading(true);
     try {
-      const [list, p] = await Promise.all([
+      const [list, p, meta] = await Promise.all([
         getAllAuctions(),
         getPendingReturns(wallet.address).catch(() => "0"),
+        refreshAuctionMetadata(),
       ]);
       setAuctions(list);
-      setMeta(getAllAuctionMetadata());
+      setMeta(meta);
       setPending(p);
     } finally {
       setLoading(false);
