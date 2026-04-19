@@ -10,6 +10,7 @@ import { getAllAuctions, OnChainAuction } from "@/lib/contract";
 import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
 import { AuctionStories } from "@/components/AuctionStories";
+import { EtherscanLink } from "@/components/EtherscanLink";
 import placeholder from "@/assets/auction-1.jpg";
 
 const toUiAuction = (
@@ -123,6 +124,10 @@ const Index = () => {
                   Explore Auctions <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
+            </div>
+
+            <div className="flex justify-center pt-2">
+              <EtherscanLink kind="contract" variant="pill" label="View Contract on Etherscan" />
             </div>
 
             {/* Stats strip */}
