@@ -286,17 +286,18 @@ const CreateAuction = () => {
             </div>
             <h3 className="mt-5 text-2xl font-bold">Auction created</h3>
             <p className="text-muted-foreground text-sm mt-2">Your auction is now live on the blockchain.</p>
-            <div className="mt-6 inline-flex flex-col gap-2 text-xs font-mono">
+            <div className="mt-6 inline-flex flex-col items-center gap-2 text-xs font-mono">
               {createdAuctionId !== null && (
                 <span className="text-foreground">Auction ID: <span className="text-primary-glow">#{createdAuctionId}</span></span>
               )}
               <a
                 href={`https://sepolia.etherscan.io/tx/${tx}`}
                 target="_blank" rel="noreferrer"
-                className="text-primary hover:text-primary-glow flex items-center gap-1"
+                className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-primary hover:bg-primary/10 hover:text-primary-glow transition-colors"
               >
-                Tx: {tx.slice(0, 16)}...{tx.slice(-8)} <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3.5 w-3.5" /> View Transaction on Etherscan
               </a>
+              <span className="text-muted-foreground">{tx.slice(0, 14)}…{tx.slice(-10)}</span>
             </div>
             <div className="flex gap-3 justify-center mt-8 flex-wrap">
               {createdAuctionId !== null && (
