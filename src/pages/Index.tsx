@@ -154,13 +154,9 @@ const Index = () => {
               <EtherscanLink kind="contract" variant="pill" label="View Contract on Etherscan" />
             </div>
 
-            {/* Stats strip */}
+            {/* Stats strip — derived from live contract reads */}
             <div className="grid grid-cols-3 gap-6 max-w-2xl mx-auto pt-12">
-              {[
-                { v: "12.4K", l: "Auctions settled" },
-                { v: "$8.2M", l: "Total volume" },
-                { v: "99.9%", l: "On-chain verified" },
-              ].map((s) => (
+              {heroStats.map((s) => (
                 <div key={s.l} className="text-center">
                   <div className="text-2xl md:text-3xl font-bold text-gradient-primary font-mono">{s.v}</div>
                   <div className="text-xs uppercase tracking-wider text-muted-foreground mt-1">{s.l}</div>
