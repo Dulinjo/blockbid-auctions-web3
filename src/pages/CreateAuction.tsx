@@ -117,12 +117,7 @@ const CreateAuction = () => {
           <form onSubmit={submit} className="space-y-6 rounded-2xl border border-border bg-gradient-card p-6 md:p-8">
             <div className="grid md:grid-cols-3 gap-6">
               <div className="md:col-span-1">
-                <Label>Item image (off-chain)</Label>
-                <div className="mt-1.5 aspect-square rounded-xl border-2 border-dashed border-border bg-background/40 flex flex-col items-center justify-center text-center p-4 hover:border-primary/40 transition-colors cursor-pointer">
-                  <Upload className="h-6 w-6 text-muted-foreground mb-2" />
-                  <p className="text-xs text-muted-foreground">Drop image or click</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">Stored off-chain</p>
-                </div>
+                <AuctionImageInput value={image} onChange={setImage} />
               </div>
 
               <div className="md:col-span-2 space-y-4">
