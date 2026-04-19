@@ -7,32 +7,55 @@ import heroBg from "@/assets/hero-bg.jpg";
 import { useEffect, useState } from "react";
 import { Auction } from "@/lib/types";
 import { getAllAuctions, OnChainAuction } from "@/lib/contract";
+import { refreshAuctionMetadata, type AuctionMetadata } from "@/lib/auctionMetadata";
 import { AuctionCard } from "@/components/AuctionCard";
 import placeholder from "@/assets/auction-1.jpg";
 
-const toUiAuction = (a: OnChainAuction): Auction => ({
-  id: String(a.id),
-  title: a.title || `Auction #${a.id}`,
-  description: "On-chain auction managed by the BlockBid smart contract.",
-  category: "On-chain",
-  image: placeholder,
-  seller: a.seller,
-  startingPrice: parseFloat(a.startingPrice),
-  highestBid: parseFloat(a.highestBid),
-  highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
-  endsAt: a.endsAtMs,
-  status: a.ended ? "finalized" : a.active ? "active" : "ended",
-  bidCount: 0,
-});
+const toUiAuction = (
+  a: OnChainAuction,
+  meta: Record<number, AuctionMetadata>
+): Auction => {
+  const m = meta[a.id];
+  return {
+    id: String(a.id),
+    title: m?.title || a.title || `Auction #${a.id}`,
+    description: m?.description || "On-chain auction managed by the BlockBid smart contract.",
+    category: m?.category || "On-chain",
+    image: m?.imageUrl || placeholder,
+    seller: a.seller,
+    startingPrice: parseFloat(a.startingPrice),
+    highestBid: parseFloat(a.highestBid),
+    highestBidder: a.highestBidder && a.highestBidder !== "0x0000000000000000000000000000000000000000" ? a.highestBidder : null,
+    endsAt: a.endsAtMs,
+    status: a.ended ? "finalized" : a.active ? "active" : "ended",
+    bidCount: 0,
+  };
+};
 
 const Index = () => {
   const { wallet, connect } = useWallet();
   const [auctions, setAuctions] = useState<Auction[]>([]);
 
   useEffect(() => {
-    getAllAuctions()
-      .then((a) => setAuctions(a.slice(0, 3).map(toUiAuction)))
-      .catch(() => setAuctions([]));
+    (async () => {
+      try {
+        const [list, meta] = await Promise.all([
+          getAllAuctions(),
+          refreshAuctionMetadata(),
+        ]);
+        // Prefer active auctions ending soonest, like Marketplace.
+        const sorted = [...list].sort((a, b) => {
+          const aActive = !a.ended && a.active;
+          const bActive = !b.ended && b.active;
+          if (aActive !== bActive) return aActive ? -1 : 1;
+          if (aActive && bActive) return a.endsAtMs - b.endsAtMs;
+          return b.endsAtMs - a.endsAtMs;
+        });
+        setAuctions(sorted.slice(0, 3).map((a) => toUiAuction(a, meta)));
+      } catch {
+        setAuctions([]);
+      }
+    })();
   }, []);
 
   return (
