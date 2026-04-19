@@ -90,8 +90,8 @@ export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenCha
         <DialogHeader>
           <DialogTitle>Place Bid</DialogTitle>
           <DialogDescription>
-            {step === "form" && "Enter your bid amount. The transaction will be confirmed via MetaMask."}
-            {step === "pending" && "Confirm in MetaMask, then waiting for the network..."}
+            {step === "form" && "Enter your bid amount. The transaction will be confirmed in your wallet."}
+            {step === "pending" && "Confirm in your wallet, then waiting for the network..."}
             {step === "success" && "Your bid is now recorded on-chain."}
             {step === "error" && "Something went wrong with the transaction."}
           </DialogDescription>

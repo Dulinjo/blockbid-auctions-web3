@@ -7,7 +7,7 @@ export const Footer = () => (
       <div className="md:col-span-2 space-y-4">
         <Logo />
         <p className="text-sm text-muted-foreground max-w-sm">
-          Transparent, on-chain digital auctions powered by smart contracts and verified through MetaMask.
+          Transparent, on-chain digital auctions powered by smart contracts and verified through wallet signatures.
         </p>
         <div className="flex items-center gap-2 pt-2">
           <span className="h-2 w-2 rounded-full bg-success animate-pulse-glow" />
@@ -30,7 +30,7 @@ export const Footer = () => (
         <ul className="space-y-2 text-sm text-muted-foreground">
           <li>Documentation</li>
           <li>Smart Contract</li>
-          <li>MetaMask Setup</li>
+          <li>Wallet Setup</li>
           <li>Security</li>
         </ul>
       </div>

@@ -72,9 +72,13 @@ const Marketplace = () => {
       <section className="container py-12">
         <div className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div className="max-w-2xl">
-            <h1 className="text-4xl md:text-5xl font-bold">Marketplace</h1>
-            <p className="text-muted-foreground mt-2">Live auctions read directly from the BlockBid smart contract.</p>
-            <div className="mt-2 text-xs font-mono text-muted-foreground break-all">Contract: {CONTRACT_ADDRESS}</div>
+            <h1 className="text-3xl md:text-5xl font-bold">Marketplace</h1>
+            <p className="text-muted-foreground mt-2 text-sm md:text-base">
+              Browse auctions freely — connect a wallet when you're ready to place a bid.
+            </p>
+            <div className="mt-2 text-[11px] md:text-xs font-mono text-muted-foreground break-all">
+              Contract: {CONTRACT_ADDRESS}
+            </div>
           </div>
           <Button variant="outline" onClick={load} disabled={loading} className="self-start">
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
