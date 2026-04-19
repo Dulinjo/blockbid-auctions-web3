@@ -36,6 +36,7 @@ const toUiAuction = (
 const Index = () => {
   const { wallet, connect } = useWallet();
   const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [allAuctions, setAllAuctions] = useState<Auction[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -52,9 +53,12 @@ const Index = () => {
           if (aActive && bActive) return a.endsAtMs - b.endsAtMs;
           return b.endsAtMs - a.endsAtMs;
         });
-        setAuctions(sorted.slice(0, 3).map((a) => toUiAuction(a, meta)));
+        const ui = sorted.map((a) => toUiAuction(a, meta));
+        setAllAuctions(ui);
+        setAuctions(ui.slice(0, 3));
       } catch {
         setAuctions([]);
+        setAllAuctions([]);
       }
     })();
   }, []);
