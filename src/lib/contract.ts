@@ -1,10 +1,31 @@
-import { BrowserProvider, Contract, formatEther, parseEther } from "ethers";
+import { BrowserProvider, Contract, JsonRpcProvider, formatEther, parseEther } from "ethers";
 import abi from "@/abi/BlockBidAuction.json";
 
 export const CONTRACT_ADDRESS = "0x32A5C515cbb766A6Df86CF2073ef755a45e8d746";
 export const SEPOLIA_CHAIN_ID = "0xaa36a7";
 export const EXPECTED_CHAIN_ID = 11155111;
 export const EXPECTED_NETWORK_NAME = "Sepolia";
+
+// Public read-only RPCs used when MetaMask is missing or on a different network.
+// Reading auction data must work for every visitor (mobile, shared links, etc.).
+const SEPOLIA_PUBLIC_RPCS = [
+  "https://ethereum-sepolia-rpc.publicnode.com",
+  "https://rpc.sepolia.org",
+  "https://1rpc.io/sepolia",
+];
+
+let _readProvider: JsonRpcProvider | null = null;
+export function getReadProvider(): JsonRpcProvider {
+  if (_readProvider) return _readProvider;
+  _readProvider = new JsonRpcProvider(SEPOLIA_PUBLIC_RPCS[0], EXPECTED_CHAIN_ID, {
+    staticNetwork: true,
+  });
+  return _readProvider;
+}
+
+function getReadContract(): Contract {
+  return new Contract(CONTRACT_ADDRESS, abi, getReadProvider());
+}
 
 declare global {
   interface Window {
@@ -108,13 +129,26 @@ export async function switchToSepolia() {
 }
 
 export async function getContract(withSigner = false) {
-  await ensureSepoliaNetwork();
-  const provider = await getProvider();
+  // Writes require MetaMask + Sepolia. Reads use a public RPC fallback so
+  // visitors without a wallet (or on a wrong network) can still browse.
   if (withSigner) {
+    await ensureSepoliaNetwork();
+    const provider = await getProvider();
     const signer = await provider.getSigner();
     return new Contract(CONTRACT_ADDRESS, abi, signer);
   }
-  return new Contract(CONTRACT_ADDRESS, abi, provider);
+  if (window.ethereum) {
+    try {
+      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      if (chainId === SEPOLIA_CHAIN_ID) {
+        const provider = new BrowserProvider(window.ethereum);
+        return new Contract(CONTRACT_ADDRESS, abi, provider);
+      }
+    } catch {
+      /* fall through to public RPC */
+    }
+  }
+  return getReadContract();
 }
 
 /* ---------------- Read methods ---------------- */

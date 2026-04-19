@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
+import { BrowserProvider, formatEther } from "ethers";
 import {
   connectWallet as svcConnect,
   isMetaMaskInstalled,
@@ -21,51 +22,85 @@ interface WalletContextValue {
 
 const WalletContext = createContext<WalletContextValue | undefined>(undefined);
 
+// Silently read the currently authorized account WITHOUT prompting MetaMask.
+// Used by accountsChanged / chainChanged listeners and for hydration.
+async function readWalletSilently(): Promise<WalletInfo | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const eth = (window as any).ethereum;
+  if (!eth) return null;
+  try {
+    const accounts: string[] = await eth.request({ method: "eth_accounts" });
+    if (!accounts || accounts.length === 0) return null;
+    const provider = new BrowserProvider(eth);
+    const network = await provider.getNetwork();
+    const address = accounts[0];
+    const balanceWei = await provider.getBalance(address);
+    return {
+      address,
+      network: network.name === "unknown" ? "Sepolia" : network.name,
+      chainId: Number(network.chainId),
+      balance: parseFloat(formatEther(balanceWei)).toFixed(4),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [hasMetaMask, setHasMetaMask] = useState(true);
 
   const refreshWallet = useCallback(async () => {
-    try {
-      const info = await svcConnect();
+    const info = await readWalletSilently();
+    if (info) {
       setWallet(info);
       localStorage.setItem("blockbid_wallet", JSON.stringify(info));
-    } catch {
-      /* ignore */
+    } else {
+      setWallet(null);
+      localStorage.removeItem("blockbid_wallet");
     }
   }, []);
 
   useEffect(() => {
     setHasMetaMask(isMetaMaskInstalled());
-    const stored = localStorage.getItem("blockbid_wallet");
-    if (stored) {
-      try {
-        setWallet(JSON.parse(stored));
-      } catch {
-        /* ignore */
-      }
-    }
+
+    // Always re-hydrate from the provider on mount so a stale localStorage
+    // entry from a different account never wins.
+    void refreshWallet();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const eth = (window as any).ethereum;
     if (!eth) return;
 
     const onAccounts = (accounts: string[]) => {
-      if (accounts.length === 0) {
+      if (!accounts || accounts.length === 0) {
         setWallet(null);
         localStorage.removeItem("blockbid_wallet");
+        toast("Wallet disconnected");
       } else {
-        refreshWallet();
+        void refreshWallet().then(() => {
+          toast.success("Account switched", {
+            description: `${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`,
+          });
+        });
       }
     };
-    const onChain = () => refreshWallet();
+    const onChain = () => {
+      void refreshWallet();
+    };
+    const onDisconnect = () => {
+      setWallet(null);
+      localStorage.removeItem("blockbid_wallet");
+    };
 
     eth.on?.("accountsChanged", onAccounts);
     eth.on?.("chainChanged", onChain);
+    eth.on?.("disconnect", onDisconnect);
     return () => {
       eth.removeListener?.("accountsChanged", onAccounts);
       eth.removeListener?.("chainChanged", onChain);
+      eth.removeListener?.("disconnect", onDisconnect);
     };
   }, [refreshWallet]);
 

@@ -18,19 +18,31 @@ const statusOf = (a: OnChainAuction): AuctionStatus =>
 const AuctionDetails = () => {
   const { id } = useParams();
   const auctionId = Number(id);
+  const idIsValid = id !== undefined && id !== "" && Number.isInteger(auctionId) && auctionId > 0;
   const [auction, setAuction] = useState<OnChainAuction | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [bidOpen, setBidOpen] = useState(false);
   const [ending, setEnding] = useState(false);
   const { wallet, connect, correctNetwork, switchNetwork } = useWallet();
 
   const refresh = async () => {
-    if (Number.isNaN(auctionId)) return;
+    if (!idIsValid) {
+      setLoading(false);
+      setLoadError("Invalid auction ID in URL.");
+      return;
+    }
+    setLoadError(null);
     try {
       const a = await getAuction(auctionId);
       setAuction(a);
     } catch (e) {
-      toast.error("Failed to load auction", { description: parseTxError(e) });
+      const msg = parseTxError(e);
+      setLoadError(msg);
+      setAuction(null);
+      // Don't toast on first load — the page already shows a clear message.
+      // eslint-disable-next-line no-console
+      console.error("getAuction failed", { auctionId, error: e });
     } finally {
       setLoading(false);
     }
@@ -38,6 +50,7 @@ const AuctionDetails = () => {
 
   useEffect(() => {
     setLoading(true);
+    setAuction(null);
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auctionId]);
@@ -73,9 +86,44 @@ const AuctionDetails = () => {
   if (!auction) {
     return (
       <Layout>
-        <div className="container py-24 text-center">
-          <p className="text-muted-foreground">Auction not found on-chain.</p>
-          <Button asChild className="mt-4"><Link to="/marketplace">Back to marketplace</Link></Button>
+        <div className="container py-24 max-w-xl mx-auto text-center space-y-6">
+          <div className="mx-auto h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold">Auction not available</h1>
+            <p className="text-muted-foreground">
+              {idIsValid
+                ? "This auction does not exist on-chain or the link is invalid."
+                : "The auction ID in the URL is missing or invalid."}
+            </p>
+          </div>
+          <div className="rounded-xl border border-border bg-card/40 p-4 text-left text-xs font-mono space-y-1.5">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Requested ID</span>
+              <span className="break-all">{String(id ?? "—")}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Contract</span>
+              <span className="break-all">{shortenAddress(CONTRACT_ADDRESS, 6)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Network</span>
+              <span>Sepolia (chainId 11155111)</span>
+            </div>
+            {loadError && (
+              <div className="pt-2 mt-2 border-t border-border/60">
+                <div className="text-muted-foreground mb-1">Error</div>
+                <div className="text-destructive break-all whitespace-pre-wrap">{loadError}</div>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-center">
+            <Button asChild variant="outline">
+              <Link to="/marketplace"><ArrowLeft className="mr-1 h-4 w-4" /> Marketplace</Link>
+            </Button>
+            <Button onClick={() => { setLoading(true); refresh(); }}>Retry</Button>
+          </div>
         </div>
       </Layout>
     );
