@@ -1,12 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { BrowserProvider, formatEther } from "ethers";
+import { useAccount, useBalance, useChainId, useConnectorClient, useDisconnect } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import {
-  connectWallet as svcConnect,
-  isMetaMaskInstalled,
   switchToSepolia,
   EXPECTED_CHAIN_ID,
   WalletInfo,
   parseTxError,
+  setActiveWalletProvider,
 } from "@/lib/contract";
 import { toast } from "sonner";
 
@@ -15,6 +16,8 @@ interface WalletContextValue {
   connecting: boolean;
   hasMetaMask: boolean;
   correctNetwork: boolean;
+  walletType: string | null;
+  isReadOnly: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
   switchNetwork: () => Promise<void>;
@@ -22,140 +25,108 @@ interface WalletContextValue {
 
 const WalletContext = createContext<WalletContextValue | undefined>(undefined);
 
-// Silently read the currently authorized account WITHOUT prompting MetaMask.
-// Used by accountsChanged / chainChanged listeners and for hydration.
-async function readWalletSilently(): Promise<WalletInfo | null> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const eth = (window as any).ethereum;
-  if (!eth) return null;
-  try {
-    const accounts: string[] = await eth.request({ method: "eth_accounts" });
-    if (!accounts || accounts.length === 0) return null;
-    const provider = new BrowserProvider(eth);
-    const network = await provider.getNetwork();
-    const address = accounts[0];
-    const balanceWei = await provider.getBalance(address);
-    return {
-      address,
-      network: network.name === "unknown" ? "Sepolia" : network.name,
-      chainId: Number(network.chainId),
-      balance: parseFloat(formatEther(balanceWei)).toFixed(4),
-    };
-  } catch {
-    return null;
-  }
-}
-
 export function WalletProvider({ children }: { children: ReactNode }) {
+  // wagmi state
+  const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
+  const chainId = useChainId();
+  const { data: balanceData } = useBalance({ address, chainId });
+  const { data: connectorClient } = useConnectorClient();
+  const { disconnect: wagmiDisconnect } = useDisconnect();
+  const { openConnectModal } = useConnectModal();
+
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [hasMetaMask, setHasMetaMask] = useState(true);
 
-  const refreshWallet = useCallback(async () => {
-    const info = await readWalletSilently();
-    if (info) {
-      setWallet(info);
-      localStorage.setItem("blockbid_wallet", JSON.stringify(info));
-    } else {
-      setWallet(null);
-      localStorage.removeItem("blockbid_wallet");
-    }
-  }, []);
-
+  // Pipe the active wallet's EIP-1193 provider into contract.ts so all
+  // existing ethers writes (createAuction, placeBid, ...) use whichever
+  // wallet is currently connected (MetaMask / Coinbase / WalletConnect / Rabby).
   useEffect(() => {
-    setHasMetaMask(isMetaMaskInstalled());
-
-    // Always re-hydrate from the provider on mount so a stale localStorage
-    // entry from a different account never wins.
-    void refreshWallet();
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const eth = (window as any).ethereum;
-    if (!eth) return;
-
-    const onAccounts = (accounts: string[]) => {
-      if (!accounts || accounts.length === 0) {
-        setWallet(null);
-        localStorage.removeItem("blockbid_wallet");
-        toast("Wallet disconnected");
-      } else {
-        void refreshWallet().then(() => {
-          toast.success("Account switched", {
-            description: `${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`,
-          });
-        });
+    let cancelled = false;
+    async function syncProvider() {
+      if (!isConnected || !connector) {
+        setActiveWalletProvider(null);
+        return;
       }
-    };
-    const onChain = () => {
-      void refreshWallet();
-    };
-    const onDisconnect = () => {
-      setWallet(null);
-      localStorage.removeItem("blockbid_wallet");
-    };
-
-    eth.on?.("accountsChanged", onAccounts);
-    eth.on?.("chainChanged", onChain);
-    eth.on?.("disconnect", onDisconnect);
+      try {
+        const provider = await connector.getProvider();
+        if (!cancelled) setActiveWalletProvider(provider);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[WalletContext] failed to get connector provider", e);
+        setActiveWalletProvider(null);
+      }
+    }
+    void syncProvider();
     return () => {
-      eth.removeListener?.("accountsChanged", onAccounts);
-      eth.removeListener?.("chainChanged", onChain);
-      eth.removeListener?.("disconnect", onDisconnect);
+      cancelled = true;
     };
-  }, [refreshWallet]);
+  }, [isConnected, connector, chainId, address]);
 
-  const connect = useCallback(async () => {
-    if (!isMetaMaskInstalled()) {
-      toast.error("MetaMask not detected", {
-        description: "Install MetaMask to continue",
-      });
+  // Build the legacy WalletInfo shape consumed across the app.
+  useEffect(() => {
+    if (!isConnected || !address) {
+      setWallet(null);
       return;
     }
-    setConnecting(true);
+    const networkName = chainId === EXPECTED_CHAIN_ID ? "Sepolia" : `Chain ${chainId}`;
+    const balance = balanceData
+      ? parseFloat(formatEther(balanceData.value)).toFixed(4)
+      : "0.0000";
+    setWallet({
+      address,
+      network: networkName,
+      chainId: chainId ?? 0,
+      balance,
+    });
+  }, [isConnected, address, chainId, balanceData]);
+
+  const connect = useCallback(async () => {
     try {
-      const info = await svcConnect();
-      setWallet(info);
-      localStorage.setItem("blockbid_wallet", JSON.stringify(info));
-      toast.success("Wallet connected", {
-        description: `${info.address.slice(0, 6)}...${info.address.slice(-4)}`,
-      });
-      if (info.chainId !== EXPECTED_CHAIN_ID) {
-        toast.warning("Wrong network", {
-          description: "Please switch to Sepolia testnet",
-        });
-      }
+      openConnectModal?.();
     } catch (e) {
       toast.error("Connection failed", { description: parseTxError(e) });
-    } finally {
-      setConnecting(false);
     }
-  }, []);
+  }, [openConnectModal]);
 
   const disconnect = useCallback(() => {
-    setWallet(null);
-    localStorage.removeItem("blockbid_wallet");
+    wagmiDisconnect();
+    setActiveWalletProvider(null);
     toast("Wallet disconnected");
-  }, []);
+  }, [wagmiDisconnect]);
 
   const switchNetwork = useCallback(async () => {
     try {
       await switchToSepolia();
-      await refreshWallet();
       toast.success("Switched to Sepolia");
     } catch (e) {
       toast.error("Network switch failed", { description: parseTxError(e) });
     }
-  }, [refreshWallet]);
+  }, []);
 
   const correctNetwork = wallet?.chainId === EXPECTED_CHAIN_ID;
+  // Kept for backward-compat with WalletButton fallback path. With wagmi
+  // we no longer need to gate on MetaMask presence — RainbowKit shows
+  // alternative wallets (Coinbase, WalletConnect, ...) when MetaMask is
+  // missing — so always report true.
+  const hasMetaMask = true;
+  const walletType = connector?.name ?? null;
+  const isReadOnly = !isConnected;
 
-  return (
-    <WalletContext.Provider
-      value={{ wallet, connecting, hasMetaMask, correctNetwork, connect, disconnect, switchNetwork }}
-    >
-      {children}
-    </WalletContext.Provider>
+  const value = useMemo(
+    () => ({
+      wallet,
+      connecting: isConnecting || isReconnecting,
+      hasMetaMask,
+      correctNetwork,
+      walletType,
+      isReadOnly,
+      connect,
+      disconnect,
+      switchNetwork,
+    }),
+    [wallet, isConnecting, isReconnecting, correctNetwork, walletType, isReadOnly, connect, disconnect, switchNetwork]
   );
+
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
 
 export function useWallet() {
@@ -166,3 +137,6 @@ export function useWallet() {
 
 export const shortenAddress = (addr: string, chars = 4) =>
   addr.length > chars * 2 + 2 ? `${addr.slice(0, chars + 2)}...${addr.slice(-chars)}` : addr;
+
+// Re-export so legacy imports keep working without ripple changes.
+export { BrowserProvider };
