@@ -14,7 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      auction_metadata: {
+        Row: {
+          auction_id: number
+          category: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          file_name: string | null
+          image_url: string | null
+          prompt: string | null
+          source_type: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          auction_id: number
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          file_name?: string | null
+          image_url?: string | null
+          prompt?: string | null
+          source_type?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          auction_id?: number
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          file_name?: string | null
+          image_url?: string | null
+          prompt?: string | null
+          source_type?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
