@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard.tsx";
 import ContractInfo from "./pages/ContractInfo.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AuctionTest from "./components/AuctionTest";
+import { TxDebugPanel } from "./components/TxDebugPanel";
 
 const queryClient = new QueryClient();
 
@@ -22,6 +23,7 @@ const App = () => (
         <Toaster />
         <Sonner theme="dark" />
         <BrowserRouter>
+          <TxDebugPanel />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/marketplace" element={<Marketplace />} />

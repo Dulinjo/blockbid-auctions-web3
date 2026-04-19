@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWallet } from "@/contexts/WalletContext";
-import { placeBid, parseTxError, getCurrentMinBid } from "@/lib/contract";
+import { placeBid, classifyTxError, getCurrentMinBid } from "@/lib/contract";
+import { debugBus } from "@/components/TxDebugPanel";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
 
@@ -51,14 +52,28 @@ export const BidModal = ({ auctionId, currentBid, startingPrice, open, onOpenCha
     }
     if (!wallet) return;
     setStep("pending");
+    setError("");
     try {
-      const { txHash } = await placeBid(auctionId, amount);
+      const { txHash } = await placeBid(auctionId, amount, {
+        onPhase: (phase, info) => {
+          if (phase === "submitted" || phase === "confirmed") {
+            debugBus.set({ phase, txHash: info?.txHash ?? "" });
+          } else {
+            debugBus.set({ phase });
+          }
+        },
+      });
       setTx(txHash);
       setStep("success");
+      toast.success("Bid confirmed on-chain");
       onSuccess();
     } catch (e) {
-      setError(parseTxError(e));
+      const parsed = classifyTxError(e);
+      console.error("[placeBid]", e);
+      setError(`${parsed.kind}: ${parsed.message}`);
+      debugBus.set({ phase: "error", kind: parsed.kind, message: parsed.message });
       setStep("error");
+      toast.error("Bid failed", { description: parsed.message });
     }
   };
 
