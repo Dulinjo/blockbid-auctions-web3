@@ -13,10 +13,14 @@ import { http } from "wagmi";
 import { sepolia } from "wagmi/chains";
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
 
-// Replace with a real projectId from cloud.reown.com to enable WalletConnect.
+// WalletConnect / Reown projectId. Read from env so nothing is hardcoded.
 // Browser-safe (publishable). MetaMask, Coinbase, and injected wallets work
 // without a valid projectId — only the WalletConnect mobile QR path requires it.
-export const WALLETCONNECT_PROJECT_ID = "3fbb6bba6f1de962d911bb5b5c9dba88";
+// Get a free id at https://cloud.reown.com and put it in your .env as
+// VITE_WALLETCONNECT_PROJECT_ID. We fall back to a harmless placeholder so
+// the app still boots in fresh checkouts that haven't configured WC yet.
+export const WALLETCONNECT_PROJECT_ID =
+  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "00000000000000000000000000000000";
 
 const SEPOLIA_RPCS = [
   "https://ethereum-sepolia-rpc.publicnode.com",
