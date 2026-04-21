@@ -1,9 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { BrowserProvider, Contract, parseEther, formatEther } from "ethers";
 import abi from "@/abi/BlockBidAuction.json";
-
-const CONTRACT_ADDRESS = "0x32A5C515cbb766A6Df86CF2073ef755a45e8d746";
-const SEPOLIA_CHAIN_ID = 11155111;
+import { CONTRACT_ADDRESS, EXPECTED_CHAIN_ID as SEPOLIA_CHAIN_ID } from "@/lib/contract";
 
 type LogEntry = { ts: string; msg: string; level: "info" | "ok" | "err" };
 
