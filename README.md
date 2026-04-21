@@ -162,6 +162,29 @@ npm run build      # production build into dist/
 npm run preview    # preview the production build locally
 npm run lint       # eslint
 npm run test       # vitest (unit tests)
+npm run typecheck  # TypeScript compile check (tsc --noEmit)
+npm run check:week3 # minimal Week 3 check: typecheck + build
+```
+
+---
+
+## 6.1 Week 3 assignment compliance (UkisAI Academy)
+
+This repository satisfies the two required automated checks for the Week 3
+assignment:
+
+1. **Code compiles (TypeScript):**  
+   `npm run typecheck` runs `tsc --noEmit` and must pass.
+2. **No hardcoded secrets:**  
+   runtime values are read from environment variables (`import.meta.env.*`),
+   and `.env` is git-ignored. Only placeholder examples are committed in
+   `.env.example`.
+
+Local pre-push check:
+
+```bash
+npm install
+npm run check:week3
 ```
 
 ---
