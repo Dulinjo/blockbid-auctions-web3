@@ -168,7 +168,32 @@ npm run check:week3 # minimal Week 3 check: typecheck + build
 
 ---
 
-## 6.1 Week 3 assignment compliance (UkisAI Academy)
+## 6.1 Deploy to Vercel
+
+This project is ready for static deployment on Vercel (React SPA + Vite build).
+
+1. Push this repository to GitHub.
+2. In Vercel, create a new project and import the GitHub repo.
+3. Use these build settings:
+   - **Framework Preset:** Vite
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+4. In **Project Settings → Environment Variables**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `VITE_SUPABASE_PROJECT_ID`
+   - `VITE_CONTRACT_ADDRESS`
+   - `VITE_WALLETCONNECT_PROJECT_ID`
+5. Trigger deploy (or redeploy after adding variables).
+
+Notes:
+- `vercel.json` is included with an SPA rewrite so direct visits to routes like
+  `/marketplace` or `/auction/1` resolve to `index.html` instead of returning 404.
+- Environment values come from `.env.example`; never commit private secrets.
+
+---
+
+## 6.2 Week 3 assignment compliance (UkisAI Academy)
 
 This repository satisfies the two required automated checks for the Week 3
 assignment:
