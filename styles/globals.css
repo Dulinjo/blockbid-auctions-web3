@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 222 40% 10%;
+  --foreground: 210 20% 96%;
+  --muted: 222 25% 16%;
+  --muted-foreground: 214 16% 70%;
+  --border: 221 24% 24%;
+  --card: 223 34% 13%;
+  --card-foreground: 210 20% 96%;
+  --primary: 217 86% 61%;
+  --primary-foreground: 220 20% 98%;
+  --ring: 217 86% 61%;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(50, 77, 174, 0.2), transparent 35%),
+    radial-gradient(circle at 90% 0%, rgba(58, 97, 173, 0.14), transparent 35%);
+}
+
+.glass-panel {
+  background: linear-gradient(
+    160deg,
+    rgba(22, 30, 56, 0.78) 0%,
+    rgba(16, 21, 40, 0.65) 100%
+  );
+  border: 1px solid rgba(123, 142, 190, 0.25);
+  backdrop-filter: blur(12px);
+}
+
+.legal-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.legal-scrollbar::-webkit-scrollbar-track {
+  background: rgba(18, 24, 44, 0.65);
+}
+
+.legal-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(99, 122, 176, 0.7);
+  border-radius: 9999px;
+}

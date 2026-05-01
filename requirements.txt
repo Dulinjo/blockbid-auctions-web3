@@ -1,0 +1,10 @@
+fastapi
+python-multipart
+langchain
+langchain-openai
+langchain-community
+faiss-cpu
+openai
+PyMuPDF
+python-docx
+odfpy
