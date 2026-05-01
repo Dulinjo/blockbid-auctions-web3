@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { BrowserProvider, formatEther } from "ethers";
-import { useAccount, useBalance, useChainId, useConnectorClient, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useBalance, useChainId, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import {
   switchToSepolia,
@@ -37,9 +37,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
   const chainId = useChainId();
   const { data: balanceData } = useBalance({ address, chainId });
-  const { data: connectorClient } = useConnectorClient();
   const { connectAsync, connectors } = useConnect();
   const { disconnect: wagmiDisconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
   const { openConnectModal } = useConnectModal();
 
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
@@ -113,12 +113,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const switchNetwork = useCallback(async () => {
     try {
-      await switchToSepolia();
+      if (switchChainAsync) {
+        await switchChainAsync({ chainId: EXPECTED_CHAIN_ID });
+      } else {
+        await switchToSepolia();
+      }
       toast.success("Switched to Sepolia");
     } catch (e) {
       toast.error("Network switch failed", { description: parseTxError(e) });
     }
-  }, []);
+  }, [switchChainAsync]);
 
   const correctNetwork = wallet?.chainId === EXPECTED_CHAIN_ID;
   // Kept for backward-compat with WalletButton fallback path. With wagmi
