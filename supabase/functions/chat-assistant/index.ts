@@ -19,10 +19,17 @@
 //   does not yet provide rate-limit primitives). Upstream 429 / 402 responses
 //   from the AI gateway are surfaced to the client.
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
+};
+
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Cache-Control": "no-store",
 };
 
 // ---------- Limits ----------
@@ -33,11 +40,13 @@ const MAX_AUCTIONS = 30;            // capped snapshot
 const MAX_TITLE_CHARS = 120;
 const MAX_ROUTE_CHARS = 80;
 const MAX_NETWORK_CHARS = 40;
+const ALLOW_MISSING_ORIGIN =
+  (Deno.env.get("ALLOW_MISSING_ORIGIN") ?? "true").toLowerCase() !== "false";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://blockbid-auctions-web3.lovable.app",
 ];
-const DEFAULT_ALLOWED_ORIGIN_SUFFIXES = [".lovable.app", ".lovableproject.com", ".vercel.app"];
+const DEFAULT_ALLOWED_ORIGIN_SUFFIXES = [".lovable.app", ".lovableproject.com"];
 
 function parseCsv(value: string | undefined): string[] {
   if (!value) return [];
@@ -49,6 +58,36 @@ function parseCsv(value: string | undefined): string[] {
 
 function normalizeOrigin(input: string): string {
   return input.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function responseHeaders(
+  origin: string | null,
+  originAllowed: boolean,
+  contentType: "application/json" | "text/event-stream"
+) {
+  return {
+    ...BASE_CORS_HEADERS,
+    ...SECURITY_HEADERS,
+    "Access-Control-Allow-Origin": origin
+      ? originAllowed
+        ? normalizeOrigin(origin)
+        : "null"
+      : "*",
+    Vary: "Origin",
+    "Content-Type": contentType,
+  };
+}
+
+function jsonResponse(
+  status: number,
+  payload: unknown,
+  origin: string | null,
+  originAllowed: boolean
+) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: responseHeaders(origin, originAllowed, "application/json"),
+  });
 }
 
 const ALLOWED_ORIGINS = new Set([
@@ -68,7 +107,7 @@ const ALLOWED_ORIGIN_SUFFIXES = Array.from(
 function isAllowedOrigin(origin: string | null): boolean {
   // No Origin header: server-to-server / curl / mobile webview — allow.
   // Browsers always send Origin on cross-origin POST requests.
-  if (!origin) return true;
+  if (!origin) return ALLOW_MISSING_ORIGIN;
   const normalized = normalizeOrigin(origin);
   if (ALLOWED_ORIGINS.has(normalized)) return true;
   try {
@@ -187,7 +226,9 @@ function sanitizeMessages(input: unknown): ChatMessage[] | null {
 
 // ---------- Prompt builder ----------
 
-const SITE_BASE = "https://blockbid-auctions-web3.lovable.app";
+const SITE_BASE = normalizeOrigin(
+  Deno.env.get("PUBLIC_SITE_URL") ?? DEFAULT_ALLOWED_ORIGINS[0]
+);
 const ETHERSCAN = "https://sepolia.etherscan.io/address/0x32A5C515cbb766A6Df86CF2073ef755a45e8d746";
 const GITHUB = "https://github.com/Dulinjo/blockbid-auctions-web3";
 
@@ -271,32 +312,46 @@ STYLE:
 // ---------- Handler ----------
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get("origin");
+  const originAllowed = isAllowedOrigin(origin);
+
+  if (req.method === "OPTIONS") {
+    if (!originAllowed) {
+      return new Response(null, {
+        status: 403,
+        headers: responseHeaders(origin, false, "application/json"),
+      });
+    }
+    return new Response(null, {
+      status: 204,
+      headers: responseHeaders(origin, true, "application/json"),
+    });
+  }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(405, { error: "Method not allowed" }, origin, originAllowed);
   }
 
   // 1. Origin allow-list — blocks casual abuse from arbitrary domains.
-  const origin = req.headers.get("origin");
-  if (!isAllowedOrigin(origin)) {
+  if (!originAllowed) {
     console.warn("[chat-assistant] rejected origin", origin);
-    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(403, { error: "Origin not allowed" }, origin, false);
   }
 
   // 2. Body size cap — refuse oversized payloads before parsing.
+  const reqContentType = req.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!reqContentType.includes("application/json")) {
+    return jsonResponse(
+      415,
+      { error: "Unsupported media type. Use application/json." },
+      origin,
+      true
+    );
+  }
+
   const contentLength = Number(req.headers.get("content-length") ?? "0");
   if (contentLength > MAX_BODY_BYTES) {
-    return new Response(JSON.stringify({ error: "Request too large" }), {
-      status: 413,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(413, { error: "Request too large" }, origin, true);
   }
 
   try {
@@ -304,44 +359,29 @@ Deno.serve(async (req: Request) => {
     try {
       raw = await req.text();
     } catch {
-      return new Response(JSON.stringify({ error: "Invalid body" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(400, { error: "Invalid body" }, origin, true);
     }
     if (raw.length > MAX_BODY_BYTES) {
-      return new Response(JSON.stringify({ error: "Request too large" }), {
-        status: 413,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(413, { error: "Request too large" }, origin, true);
     }
 
     let parsed: { messages?: unknown; context?: ChatContext };
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return new Response(JSON.stringify({ error: "Invalid JSON" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(400, { error: "Invalid JSON" }, origin, true);
     }
 
     const messages = sanitizeMessages(parsed.messages);
     if (!messages) {
-      return new Response(JSON.stringify({ error: "messages required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(400, { error: "messages required" }, origin, true);
     }
 
     const context = sanitizeContext(parsed.context);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY missing" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(500, { error: "LOVABLE_API_KEY missing" }, origin, true);
     }
 
     const systemPrompt = buildSystemPrompt(context);
@@ -361,33 +401,36 @@ Deno.serve(async (req: Request) => {
 
     if (!upstream.ok) {
       if (upstream.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit reached. Please wait a moment and try again." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        return jsonResponse(
+          429,
+          { error: "Rate limit reached. Please wait a moment and try again." },
+          origin,
+          true
         );
       }
       if (upstream.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Add credits in Settings → Workspace → Usage." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        return jsonResponse(
+          402,
+          { error: "AI credits exhausted. Add credits in Settings → Workspace → Usage." },
+          origin,
+          true
         );
       }
       const body = await upstream.text();
       console.error("[chat-assistant] upstream error", upstream.status, body);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(500, { error: "AI gateway error" }, origin, true);
     }
 
     return new Response(upstream.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      headers: responseHeaders(origin, true, "text/event-stream"),
     });
   } catch (e) {
     console.error("[chat-assistant] error", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    return jsonResponse(
+      500,
+      { error: e instanceof Error ? e.message : "Unknown error" },
+      origin,
+      true
     );
   }
 });
