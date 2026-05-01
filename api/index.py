@@ -36,6 +36,12 @@ class UploadResponse(BaseModel):
     chunks_added: int
 
 
+class BatchUploadResponse(BaseModel):
+    status: str
+    uploaded: list[UploadResponse]
+    failed: list[dict]
+
+
 class ReindexResponse(BaseModel):
     status: str
     chunks_indexed: int
@@ -94,6 +100,46 @@ async def upload_document(request: Request, file: UploadFile = File(...)) -> Upl
         raise HTTPException(status_code=500, detail=f"Neuspešna obrada dokumenta: {exc}") from exc
 
     return UploadResponse(status="ok", filename=file.filename, chunks_added=chunks_added)
+
+
+@app.post("/api/upload-multiple", response_model=BatchUploadResponse)
+async def upload_multiple_documents(
+    request: Request, files: list[UploadFile] = File(...)
+) -> BatchUploadResponse:
+    _assert_admin_authorized(request)
+    if not files:
+        raise HTTPException(status_code=400, detail="Nijedan fajl nije prosleđen.")
+
+    uploaded: list[UploadResponse] = []
+    failed: list[dict] = []
+
+    ensure_documents_dir()
+
+    for file in files:
+        if not file.filename:
+            failed.append({"filename": "", "detail": "Nedostaje naziv fajla."})
+            continue
+
+        raw_bytes = await file.read()
+        if not raw_bytes:
+            failed.append({"filename": file.filename, "detail": "Otpremljeni dokument je prazan."})
+            continue
+
+        destination = persist_upload(file.filename, raw_bytes)
+        try:
+            parsed = parse_and_normalize_file(file.filename, io.BytesIO(raw_bytes))
+            chunks_added = rag_engine.add_documents([parsed])
+            uploaded.append(
+                UploadResponse(status="ok", filename=file.filename, chunks_added=chunks_added)
+            )
+        except DocumentProcessingError as exc:
+            destination.unlink(missing_ok=True)
+            failed.append({"filename": file.filename, "detail": str(exc)})
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            failed.append({"filename": file.filename, "detail": f"Neuspešna obrada dokumenta: {exc}"})
+
+    return BatchUploadResponse(status="ok", uploaded=uploaded, failed=failed)
 
 
 @app.post("/api/reindex", response_model=ReindexResponse)
