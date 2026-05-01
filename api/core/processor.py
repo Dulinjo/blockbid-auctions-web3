@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -13,8 +14,12 @@ from odf import teletype
 from odf.opendocument import load as odf_load
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DOCUMENTS_DIR = BASE_DIR / "data" / "documents"
-INDEX_DIR = BASE_DIR / "data" / "index"
+
+
+def get_runtime_data_dir() -> Path:
+    # Vercel serverless filesystem is read-only except /tmp.
+    # Use /tmp in hosted runtime, repo data/ in local development.
+    return Path("/tmp/lexvibe") if os.getenv("VERCEL") else BASE_DIR / "data"
 
 
 class DocumentProcessingError(Exception):
@@ -95,9 +100,12 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".odt"}
 
 
 def ensure_documents_dir() -> Path:
-    DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
-    INDEX_DIR.mkdir(parents=True, exist_ok=True)
-    return DOCUMENTS_DIR
+    runtime_data_dir = get_runtime_data_dir()
+    documents_dir = runtime_data_dir / "documents"
+    index_dir = runtime_data_dir / "index"
+    documents_dir.mkdir(parents=True, exist_ok=True)
+    index_dir.mkdir(parents=True, exist_ok=True)
+    return documents_dir
 
 
 def _sanitize_filename(filename: str) -> str:

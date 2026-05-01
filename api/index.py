@@ -94,7 +94,16 @@ async def upload_document(request: Request, file: UploadFile = File(...)) -> Upl
         raise HTTPException(status_code=400, detail="Otpremljeni dokument je prazan.")
 
     ensure_documents_dir()
-    destination = persist_upload(file.filename, raw_bytes)
+    try:
+        destination = persist_upload(file.filename, raw_bytes)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Storage nije dostupan za upis dokumenata na ovoj instanci. "
+                "Za produkciju koristite trajni storage (npr. Supabase Storage/S3)."
+            ),
+        ) from exc
 
     try:
         parsed = parse_and_normalize_file(file.filename, io.BytesIO(raw_bytes))
@@ -135,7 +144,19 @@ async def upload_multiple_documents(
             failed.append({"filename": file.filename, "detail": "Otpremljeni dokument je prazan."})
             continue
 
-        destination = persist_upload(file.filename, raw_bytes)
+        try:
+            destination = persist_upload(file.filename, raw_bytes)
+        except OSError:
+            failed.append(
+                {
+                    "filename": file.filename,
+                    "detail": (
+                        "Storage nije dostupan za upis dokumenata na ovoj instanci. "
+                        "Za produkciju koristite trajni storage (npr. Supabase Storage/S3)."
+                    ),
+                }
+            )
+            continue
         try:
             parsed = parse_and_normalize_file(file.filename, io.BytesIO(raw_bytes))
             chunks_added = rag_engine.add_documents([parsed])

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from langchain_core.documents import Document
@@ -10,15 +9,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-from api.core.processor import StoredDocument, normalize_serbian_text
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-INDEX_DIR = BASE_DIR / "data" / "index"
+from api.core.processor import StoredDocument, get_runtime_data_dir, normalize_serbian_text
 
 
 class SerbianRAGEngine:
     def __init__(self) -> None:
-        self.index_path = INDEX_DIR
+        self.index_path = get_runtime_data_dir() / "index"
         self.index_path.mkdir(parents=True, exist_ok=True)
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=1100,
