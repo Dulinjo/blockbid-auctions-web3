@@ -459,10 +459,28 @@ export function classifyTxError(err: unknown): ParsedTxError {
     return { kind: "provider_disconnected", message: "Wallet nije povezan sa mrežom.", raw: err };
   if (lower.includes("metamask nije instaliran") || lower.includes("no ethereum"))
     return { kind: "no_wallet", message: "MetaMask nije dostupan u ovom pregledu. Otvori app u novom tabu.", raw: err };
-  if (lower.includes("sepolia") || lower.includes("chain") && lower.includes("network"))
+  // Detect insufficient-funds before generic chain/network wording so
+  // errors like "insufficient funds on chain ... network ..." are not
+  // incorrectly reported as wrong_network.
+  if (
+    code === "INSUFFICIENT_FUNDS" ||
+    lower.includes("insufficient funds") ||
+    lower.includes("gas required exceeds allowance") ||
+    lower.includes("exceeds balance")
+  ) {
+    return {
+      kind: "insufficient_funds",
+      message: "Nedovoljno Sepolia ETH za gas (i eventualni iznos transakcije).",
+      raw: err,
+    };
+  }
+  const explicitWrongNetwork =
+    lower.includes("poveži wallet na sepolia") ||
+    lower.includes("switch to sepolia") ||
+    lower.includes("wrong network") ||
+    lower.includes("unsupported chain");
+  if (explicitWrongNetwork || (lower.includes("chain") && lower.includes("network") && lower.includes("sepolia")))
     return { kind: "wrong_network", message: "Pogrešna mreža. Prebaci MetaMask na Sepolia.", raw: err };
-  if (code === "INSUFFICIENT_FUNDS" || lower.includes("insufficient funds"))
-    return { kind: "insufficient_funds", message: "Nedovoljno ETH za gas + iznos.", raw: err };
   if (code === "CALL_EXCEPTION" || lower.includes("execution reverted") || lower.includes("revert"))
     return { kind: "contract_revert", message: msg.replace(/^execution reverted:?\s*/i, "Contract revert: "), raw: err };
   if (code === "NETWORK_ERROR" || lower.includes("failed to fetch") || lower.includes("could not detect network"))
