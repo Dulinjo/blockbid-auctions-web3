@@ -34,20 +34,45 @@ const MAX_TITLE_CHARS = 120;
 const MAX_ROUTE_CHARS = 80;
 const MAX_NETWORK_CHARS = 40;
 
-const ALLOWED_ORIGINS = new Set([
+const DEFAULT_ALLOWED_ORIGINS = [
   "https://blockbid-auctions-web3.lovable.app",
-  // Lovable preview & sandbox subdomains:
-  // We can't enumerate every preview hash, so we fall back to a suffix check below.
+];
+const DEFAULT_ALLOWED_ORIGIN_SUFFIXES = [".lovable.app", ".lovableproject.com", ".vercel.app"];
+
+function parseCsv(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeOrigin(input: string): string {
+  return input.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+const ALLOWED_ORIGINS = new Set([
+  ...DEFAULT_ALLOWED_ORIGINS.map(normalizeOrigin),
+  ...parseCsv(Deno.env.get("ALLOWED_ORIGINS")).map(normalizeOrigin),
 ]);
-const ALLOWED_ORIGIN_SUFFIXES = [".lovable.app", ".lovableproject.com"];
+
+const ALLOWED_ORIGIN_SUFFIXES = Array.from(
+  new Set([
+    ...DEFAULT_ALLOWED_ORIGIN_SUFFIXES.map((suffix) => suffix.toLowerCase()),
+    ...parseCsv(Deno.env.get("ALLOWED_ORIGIN_SUFFIXES")).map((suffix) =>
+      suffix.startsWith(".") ? suffix : `.${suffix}`,
+    ),
+  ]),
+);
 
 function isAllowedOrigin(origin: string | null): boolean {
   // No Origin header: server-to-server / curl / mobile webview — allow.
   // Browsers always send Origin on cross-origin POST requests.
   if (!origin) return true;
-  if (ALLOWED_ORIGINS.has(origin)) return true;
+  const normalized = normalizeOrigin(origin);
+  if (ALLOWED_ORIGINS.has(normalized)) return true;
   try {
-    const host = new URL(origin).host;
+    const host = new URL(normalized).host.toLowerCase();
     if (host === "localhost" || host.startsWith("localhost:") || host.startsWith("127.0.0.1")) {
       return true;
     }
