@@ -37,6 +37,7 @@ const MAX_NETWORK_CHARS = 40;
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://blockbid-auctions-web3.lovable.app",
   "https://blockbid-auctions-web3.vercel.app",
+  "https://blockbid-auctions-web3-git-main-dulinjos-projects.vercel.app",
 ];
 const DEFAULT_ALLOWED_ORIGIN_SUFFIXES = [".lovable.app", ".lovableproject.com", ".vercel.app"];
 
