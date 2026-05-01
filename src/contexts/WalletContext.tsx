@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { BrowserProvider, formatEther } from "ethers";
-import { useAccount, useBalance, useChainId, useConnectorClient, useDisconnect } from "wagmi";
+import { useAccount, useBalance, useChainId, useConnectorClient, useConnect, useDisconnect } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import {
   switchToSepolia,
@@ -10,6 +10,13 @@ import {
   setActiveWalletProvider,
 } from "@/lib/contract";
 import { toast } from "sonner";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isMetaMaskConnector(connector: any): boolean {
+  const id = String(connector?.id ?? "").toLowerCase();
+  const name = String(connector?.name ?? "").toLowerCase();
+  return id.includes("meta") || name.includes("meta");
+}
 
 interface WalletContextValue {
   wallet: WalletInfo | null;
@@ -31,6 +38,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const chainId = useChainId();
   const { data: balanceData } = useBalance({ address, chainId });
   const { data: connectorClient } = useConnectorClient();
+  const { connectAsync, connectors } = useConnect();
   const { disconnect: wagmiDisconnect } = useDisconnect();
   const { openConnectModal } = useConnectModal();
 
@@ -81,11 +89,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async () => {
     try {
-      openConnectModal?.();
+      if (openConnectModal) {
+        openConnectModal();
+        return;
+      }
+      // Fallback for environments where RainbowKit modal injection fails.
+      const preferred =
+        connectors.find((c) => isMetaMaskConnector(c)) ??
+        connectors.find((c) => c.id === "injected") ??
+        connectors[0];
+      if (!preferred) throw new Error("Nijedan wallet konektor nije dostupan.");
+      await connectAsync({ connector: preferred });
     } catch (e) {
       toast.error("Connection failed", { description: parseTxError(e) });
     }
-  }, [openConnectModal]);
+  }, [openConnectModal, connectAsync, connectors]);
 
   const disconnect = useCallback(() => {
     wagmiDisconnect();
