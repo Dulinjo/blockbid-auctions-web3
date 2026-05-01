@@ -23,12 +23,11 @@ LexVibe je profesionalna LegalTech RAG aplikacija sa Next.js frontendom i FastAP
 .
 ├── app/
 │   ├── page.tsx
-│   ├── admin/
-│   │   ├── page.tsx
-│   │   └── login/page.tsx
-│   └── auth/
-│       ├── admin-login/route.ts
-│       └── admin-logout/route.ts
+│   └── admin/
+│       ├── page.tsx
+│       ├── login/page.tsx
+│       ├── login/api/route.ts
+│       └── logout/api/route.ts
 ├── api/
 │   ├── index.py
 │   └── core/
@@ -44,6 +43,11 @@ LexVibe je profesionalna LegalTech RAG aplikacija sa Next.js frontendom i FastAP
 ├── data/
 │   ├── documents/
 │   └── index/
+├── scripts/
+│   └── seed_sample_docs.py
+├── tests/
+│   ├── test_api_auth.py
+│   └── test_processor.py
 ├── requirements.txt
 ├── package.json
 └── vercel.json
@@ -68,6 +72,28 @@ Obavezne promenljive:
 npm install
 pip install -r requirements.txt
 npm run dev
+```
+
+## Seed uzornih dokumenata
+
+Za brzo testiranje admin/RAG toka možete generisati primer pravnih fajlova:
+
+```bash
+python3 scripts/seed_sample_docs.py
+```
+
+Skripta kreira u `data/documents/`:
+
+- `primer_ugovor_o_delu.docx`
+- `obavestenje_o_otkazu.odt`
+- `izvod_iz_pravilnika.pdf`
+
+Nakon toga u admin panelu pokrenite **Re-index**.
+
+## Testiranje backenda
+
+```bash
+pytest
 ```
 
 ## API rute

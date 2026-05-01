@@ -8,3 +8,4 @@ openai
 PyMuPDF
 python-docx
 odfpy
+pytest
