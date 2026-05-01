@@ -53,6 +53,13 @@ class ChatResponse(BaseModel):
     citations: list[dict]
 
 
+def _format_unexpected_upload_error(exc: Exception) -> str:
+    return (
+        "Dokument nije moguće obraditi. Proverite da li fajl sadrži čitljiv tekst i "
+        f"nije oštećen. Detalj: {exc}"
+    )
+
+
 def _assert_admin_authorized(request: Request) -> None:
     admin_cookie = request.cookies.get("lexvibe_admin")
     if admin_cookie != "ok":
@@ -97,7 +104,10 @@ async def upload_document(request: Request, file: UploadFile = File(...)) -> Upl
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"Neuspešna obrada dokumenta: {exc}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=_format_unexpected_upload_error(exc),
+        ) from exc
 
     return UploadResponse(status="ok", filename=file.filename, chunks_added=chunks_added)
 
@@ -137,7 +147,12 @@ async def upload_multiple_documents(
             failed.append({"filename": file.filename, "detail": str(exc)})
         except Exception as exc:
             destination.unlink(missing_ok=True)
-            failed.append({"filename": file.filename, "detail": f"Neuspešna obrada dokumenta: {exc}"})
+            failed.append(
+                {
+                    "filename": file.filename,
+                    "detail": _format_unexpected_upload_error(exc),
+                }
+            )
 
     return BatchUploadResponse(status="ok", uploaded=uploaded, failed=failed)
 
