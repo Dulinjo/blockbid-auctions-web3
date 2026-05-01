@@ -12,6 +12,18 @@ export const SEPOLIA_CHAIN_ID = "0xaa36a7";
 export const EXPECTED_CHAIN_ID = 11155111;
 export const EXPECTED_NETWORK_NAME = "Sepolia";
 
+function normalizeChainId(chainId: unknown): number {
+  if (typeof chainId === "number") return chainId;
+  if (typeof chainId === "bigint") return Number(chainId);
+  const value = String(chainId ?? "").trim();
+  if (!value) return 0;
+  return value.startsWith("0x") ? parseInt(value, 16) : Number(value);
+}
+
+function isExpectedChain(chainId: unknown): boolean {
+  return normalizeChainId(chainId) === EXPECTED_CHAIN_ID;
+}
+
 // Public read-only RPCs used when MetaMask is missing or on a different network.
 // Reading auction data must work for every visitor (mobile, shared links, etc.).
 const SEPOLIA_PUBLIC_RPCS = [
@@ -125,7 +137,7 @@ export async function ensureSepoliaNetwork() {
   const eip = getWriteEip1193();
   if (!eip) throw new Error("Wallet nije povezan.");
   const chainId = await eip.request({ method: "eth_chainId" });
-  if (chainId !== SEPOLIA_CHAIN_ID) {
+  if (!isExpectedChain(chainId)) {
     throw new Error("Poveži wallet na Sepolia mrežu.");
   }
 }
@@ -173,7 +185,7 @@ export async function getContract(withSigner = false) {
   if (eip) {
     try {
       const chainId = await eip.request({ method: "eth_chainId" });
-      if (chainId === SEPOLIA_CHAIN_ID) {
+      if (isExpectedChain(chainId)) {
         const provider = new BrowserProvider(eip);
         return new Contract(CONTRACT_ADDRESS, abi, provider);
       }
