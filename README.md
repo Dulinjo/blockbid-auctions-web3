@@ -96,6 +96,23 @@ Nakon toga u admin panelu pokrenite **Re-index**.
 pytest
 ```
 
+## Reranker (opciono, transformer servis)
+
+LexVibe može opciono da koristi eksterni transformer reranker servis (npr.
+ModernBERTić/SRBerta) kako bi bolje rangirao već pronađene chunkove pre finalnog
+odgovora modela.
+
+Potrebne env promenljive:
+
+- `RERANKER_API_URL` - URL servisa (npr. `https://reranker.mojdomen.com/rerank`)
+- `RERANKER_API_KEY` - opcioni bearer token za taj servis
+- `RERANKER_TIMEOUT_SECONDS` - timeout poziva (podrazumevano 8)
+- `RERANKER_TOP_N` - koliko rerankovanih chunkova vraćamo (podrazumevano 4)
+
+Napomena: Vercel sam po sebi nije idealan za hostovanje težih transformer modela.
+Preporučeno je da model radi kao odvojen mikroservis (CPU/GPU), a LexVibe ga samo
+poziva.
+
 ## API rute
 
 - `POST /api/chat` - pravni chat nad indeksiranom bazom
