@@ -53,6 +53,13 @@ class ChatResponse(BaseModel):
     citations: list[dict]
 
 
+class StatsResponse(BaseModel):
+    total_decisions: int
+    total_courts: int
+    top_courts: list[dict]
+    total_law_gazette_items: int
+
+
 def _format_unexpected_upload_error(exc: Exception) -> str:
     return (
         "Dokument nije moguće obraditi. Proverite da li fajl sadrži čitljiv tekst i "
@@ -69,6 +76,11 @@ def _assert_admin_authorized(request: Request) -> None:
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok", "service": "lexvibe-api"}
+
+
+@app.get("/api/stats", response_model=StatsResponse)
+async def stats() -> StatsResponse:
+    return StatsResponse(**rag_engine.get_dashboard_stats())
 
 
 @app.post("/api/chat", response_model=ChatResponse)

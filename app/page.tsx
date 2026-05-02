@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Gavel, Loader2, MessageSquareText } from "lucide-react";
 
 import { ChatInput } from "@/components/ChatInput";
 import { CitationCard, CitationItem } from "@/components/CitationCard";
 import { Sidebar } from "@/components/Sidebar";
+import { StatsPanel, type DashboardStats } from "@/components/StatsPanel";
 import { cn } from "@/lib/utils";
 
 type ChatRole = "user" | "assistant";
@@ -19,6 +20,7 @@ type Message = {
 
 export default function HomePage() {
   const [query, setQuery] = useState("");
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -28,6 +30,33 @@ export default function HomePage() {
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const loadStats = async () => {
+      try {
+        const response = await fetch("/api/stats");
+        if (!response.ok) {
+          return;
+        }
+        const payload = (await response.json()) as DashboardStats;
+        if (active) {
+          setStats(payload);
+        }
+      } catch {
+        // silent stats failure - do not block chat
+      } finally {
+        if (active) {
+          setStatsLoading(false);
+        }
+      }
+    };
+    void loadStats();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const hasMessages = useMemo(() => messages.length > 0, [messages.length]);
 
@@ -97,9 +126,14 @@ export default function HomePage() {
           <p className="text-xs uppercase tracking-[0.32em] text-slate-400">LexVibe Legal AI</p>
           <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold text-slate-100">
             <Gavel className="h-5 w-5 text-cyan-300" />
-            Profesionalni pravni asistent
+            Profesionalni pravni analitički asistent
           </h1>
+          <p className="mt-2 text-sm text-slate-300">
+            Analiza sudske prakse i propisa na osnovu dostupnih izvora, uz transparentne citate.
+          </p>
         </header>
+
+        <StatsPanel stats={stats} loading={statsLoading} />
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-6">
           {!hasMessages ? (

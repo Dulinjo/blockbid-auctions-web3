@@ -65,6 +65,9 @@ Obavezne promenljive:
 
 - `OPENAI_API_KEY`
 - `ADMIN_PASSWORD`
+- `SLUZBENI_GLASNIK_API_URL` (opciono)
+- `SLUZBENI_GLASNIK_API_KEY` (opciono)
+- `SLUZBENI_GLASNIK_TIMEOUT` (opciono)
 
 ## Pokretanje lokalno
 
@@ -117,8 +120,38 @@ poziva.
 
 - `POST /api/chat` - pravni chat nad indeksiranom bazom
 - `POST /api/upload` - upload PDF/DOCX/ODT dokumenta
+- `POST /api/upload-multiple` - paralelni upload više dokumenata
 - `POST /api/reindex` - kompletno reindeksiranje svih dokumenata
 - `GET /api/health` - health check
+- `GET /api/stats` - osnovne metrike baze (broj odluka, chunk-ova, sudova)
+
+## Hibridna pretraga i metapodaci
+
+Backend koristi kombinaciju:
+
+- vektorske pretrage (OpenAI embeddings + FAISS)
+- BM25 keyword pretrage
+
+Rezultati se spajaju i po potrebi rerankuju (ako je konfigurisan transformer
+reranker servis), čime je bolje razumevanje pitanja korisnika i opisa situacije.
+
+Svaki dokument dobija izvučene metapodatke iz naziva fajla:
+
+- naziv suda
+- broj odluke/predmeta
+- godina
+
+Ti metapodaci se prikazuju u citation karticama i koriste za dashboard metrike.
+
+## Propisi sa Službenog glasnika (opciono)
+
+Ako je dostupan API endpoint, aplikacija može u odgovoru dodati i reference na
+relevantne propise:
+
+- `SLUZBENI_GLASNIK_API_URL`
+- `SLUZBENI_GLASNIK_API_KEY`
+
+Ako nisu podešeni, chat radi standardno nad internom bazom odluka.
 
 ## Napomena o admin zaštiti
 
