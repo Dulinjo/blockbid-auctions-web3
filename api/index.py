@@ -142,6 +142,16 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     query_for_retrieval = preprocessed.expanded_query or preprocessed.normalized_query
     query_entities = entity_service.extract(preprocessed.normalized_query, source="user_query")
     intake = classify_intent(payload.query, preprocessed, query_entities)
+    openai_response = intake.openai_intake_response or intake.to_json()
+    print(
+        "[legal-intake-debug]",
+        {
+            "originalQuestion": payload.query,
+            "openAiIntakeResponse": openai_response,
+            "detectedIntent": intake.intent,
+            "routingDecision": intake.routing_decision,
+        },
+    )
 
     if intake.intent == INTENT_CLARIFICATION_NEEDED:
         answer = (
@@ -160,6 +170,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "detectedIntent": intake.intent,
                 "confidenceScore": intake.confidence_score,
                 "legalArea": intake.legal_area,
+                "openAiIntakeResponse": openai_response,
                 "whetherClarificationAsked": True,
                 "usedRegulationLookup": False,
                 "usedCaseLawSearch": False,
@@ -176,6 +187,16 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "entityMap": entity_service.build_entity_map(query_entities, [], []),
             }
         )
+        print(
+            "[legal-routing-debug]",
+            {
+                "originalQuestion": payload.query,
+                "detectedIntent": intake.intent,
+                "routingDecision": intake.routing_decision,
+                "pisLookupCalled": False,
+                "caseLawSearchCalled": False,
+            },
+        )
         return ChatResponse(
             answer=answer,
             citations=[],
@@ -185,7 +206,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             researchNotice=RESEARCH_NOTICE,
         )
 
-    if intake.intent == INTENT_OUT_OF_SCOPE:
+    if intake.intent == INTENT_OUT_OF_SCOPE and intake.confidence_score >= 0.6:
         answer = (
             "Pitanje deluje van pravnog domena ove aplikacije. "
             "Postavite pravno pitanje ili navedite pravni kontekst."
@@ -198,6 +219,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "detectedIntent": intake.intent,
                 "confidenceScore": intake.confidence_score,
                 "legalArea": intake.legal_area,
+                "openAiIntakeResponse": openai_response,
                 "whetherClarificationAsked": False,
                 "usedRegulationLookup": False,
                 "usedCaseLawSearch": False,
@@ -213,6 +235,16 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "errors": [],
                 "entityMap": entity_service.build_entity_map(query_entities, [], []),
             }
+        )
+        print(
+            "[legal-routing-debug]",
+            {
+                "originalQuestion": payload.query,
+                "detectedIntent": intake.intent,
+                "routingDecision": intake.routing_decision,
+                "pisLookupCalled": False,
+                "caseLawSearchCalled": False,
+            },
         )
         return ChatResponse(
             answer=answer,
@@ -262,10 +294,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     errors: list[str] = []
 
     try:
-        should_use_regulation = intake.intent in {
-            INTENT_REGULATION_LOOKUP,
-            INTENT_COMBINED,
-        } or intake.needs_regulation_lookup
+        should_use_regulation = bool(intake.needs_regulation_lookup)
         if should_use_regulation:
             hit = pis_fetcher.search_relevant_act(intake.search_query_for_regulations or query_for_retrieval)
             if hit:
@@ -361,10 +390,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                         for idx, row in enumerate(regulation_rows)
                     )
 
-        should_use_case_law = intake.intent in {
-            INTENT_CASE_LAW_SEARCH,
-            INTENT_COMBINED,
-        } or intake.needs_case_law_search
+        should_use_case_law = bool(intake.needs_case_law_search)
         domestic_topk = {
             "domesticCaseTopKUsed": should_use_case_law,
             "domesticInitialResultsCount": 0,
@@ -374,7 +400,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             "hudocTopKUsed": False,
         }
         if should_use_case_law:
-            case_result = case_law_retriever.search(
+            case_rows, domestic_topk = case_law_retriever.search(
                 intake.search_query_for_case_law or query_for_retrieval,
                 extracted_facts=intake.detected_facts,
                 initial_k=k_config.domestic_case_initial_k,
@@ -382,8 +408,6 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 analyze_k=k_config.domestic_case_analyze_k,
                 display_k=k_config.max_domestic_cases_in_answer,
             )
-            case_rows = case_result.get("displayedCases", [])
-            domestic_topk = case_result.get("topkMetrics", domestic_topk)
             case_entities = entity_service.extract(
                 "\n".join(case.get("summary", "") for case in case_rows), source="case_law"
             )
@@ -402,11 +426,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 for case in case_rows
             )
 
-        echr_should_run = intake.intent in {
-            INTENT_LEGAL_SITUATION_ANALYSIS,
-            INTENT_CASE_LAW_SEARCH,
-            INTENT_COMBINED,
-        }
+        echr_should_run = bool(intake.needs_echr_check)
         if echr_should_run:
             echr_result = search_echr_analogies(
                 {
@@ -445,6 +465,16 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             topk_metrics = echr_result.get("topKMetrics", {})
             if isinstance(topk_metrics, dict):
                 echr_result.update(topk_metrics)
+        print(
+            "[legal-routing-debug]",
+            {
+                "originalQuestion": payload.query,
+                "detectedIntent": intake.intent,
+                "routingDecision": intake.routing_decision,
+                "pisLookupCalled": should_use_regulation,
+                "caseLawSearchCalled": should_use_case_law,
+            },
+        )
 
         if not regulation_rows and not case_rows:
             fallback = rag_engine.answer(query_for_retrieval)
@@ -564,6 +594,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "detectedIntent": intake.intent,
                 "confidenceScore": intake.confidence_score,
                 "legalArea": intake.legal_area,
+                "openAiIntakeResponse": openai_response,
                 "whetherClarificationAsked": False,
                 "usedRegulationLookup": bool(regulation_rows),
                 "usedCaseLawSearch": bool(case_rows),

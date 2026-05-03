@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
+import re
 from dataclasses import dataclass
 from typing import Any
+
+from langchain_openai import ChatOpenAI
+
+from api.services.config import feature_enabled
 
 
 INTENT_LEGAL_SITUATION_ANALYSIS = "LEGAL_SITUATION_ANALYSIS"
@@ -23,12 +30,17 @@ class IntakeDecision:
     missing_facts: list[str]
     needs_regulation_lookup: bool
     needs_case_law_search: bool
+    needs_echr_check: bool
+    needs_clarification: bool
     needs_temporal_validity_check: bool
+    possible_regulations: list[str]
     clarifying_questions: list[str]
     search_query_for_regulations: str
     search_query_for_case_law: str
     routing_decision: str
     reasoning_summary: str
+    intake_source: str
+    openai_intake_response: dict[str, Any] | None = None
 
     def to_json(self) -> dict:
         return {
@@ -36,17 +48,21 @@ class IntakeDecision:
             "confidenceScore": round(self.confidence_score, 3),
             "confidenceLabel": self.confidence_label,
             "legalArea": self.legal_area,
+            "needsClarification": self.needs_clarification,
             "userSituationSummary": self.user_situation_summary,
             "detectedFacts": self.detected_facts,
             "missingFacts": self.missing_facts,
             "needsRegulationLookup": self.needs_regulation_lookup,
             "needsCaseLawSearch": self.needs_case_law_search,
+            "needsEchrCheck": self.needs_echr_check,
             "needsTemporalValidityCheck": self.needs_temporal_validity_check,
+            "possibleRegulations": self.possible_regulations,
             "clarifyingQuestions": self.clarifying_questions,
             "searchQueryForRegulations": self.search_query_for_regulations,
             "searchQueryForCaseLaw": self.search_query_for_case_law,
             "routingDecision": self.routing_decision,
             "reasoningSummary": self.reasoning_summary,
+            "intakeSource": self.intake_source,
         }
 
 
@@ -63,7 +79,251 @@ def _confidence_label(score: float) -> str:
     return "low"
 
 
-def classify_intent(
+def _normalize_intent(intent: str) -> str:
+    value = str(intent or "").strip().upper()
+    aliases = {
+        "COMBINED": INTENT_COMBINED,
+        "COMBINED_REGULATION_AND_CASE_LAW": INTENT_COMBINED,
+        "LEGAL_SITUATION_ANALYSIS": INTENT_LEGAL_SITUATION_ANALYSIS,
+        "REGULATION_LOOKUP": INTENT_REGULATION_LOOKUP,
+        "CASE_LAW_SEARCH": INTENT_CASE_LAW_SEARCH,
+        "CLARIFICATION_NEEDED": INTENT_CLARIFICATION_NEEDED,
+        "OUT_OF_SCOPE": INTENT_OUT_OF_SCOPE,
+    }
+    return aliases.get(value, INTENT_CLARIFICATION_NEEDED)
+
+
+def _parse_json_from_text(text: str) -> dict[str, Any] | None:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        payload = json.loads(cleaned)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _safe_list_str(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value:
+        if isinstance(item, (str, int, float)):
+            text = str(item).strip()
+            if text:
+                rows.append(text)
+    return rows
+
+
+def _safe_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _safe_score(value: Any, default: float = 0.55) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        score = default
+    return max(0.0, min(score, 1.0))
+
+
+def _default_routing(intent: str) -> str:
+    return (
+        "combined_pipeline"
+        if intent == INTENT_COMBINED
+        else "regulation_pipeline"
+        if intent == INTENT_REGULATION_LOOKUP
+        else "case_law_pipeline"
+        if intent == INTENT_CASE_LAW_SEARCH
+        else "situation_pipeline"
+        if intent == INTENT_LEGAL_SITUATION_ANALYSIS
+        else "clarification"
+        if intent == INTENT_CLARIFICATION_NEEDED
+        else "out_of_scope"
+    )
+
+
+def _infer_legal_area(text: str) -> str:
+    lowered = text.lower()
+    if _contains_any(lowered, ("rad", "otkaz", "zaposlen")):
+        return "radno pravo"
+    if _contains_any(lowered, ("ugovor", "obligacion", "štet", "stet", "odgovornost", "trotinet")):
+        return "naknada štete / saobraćaj / odgovornost"
+    if _contains_any(lowered, ("kriv", "kz", "kž", "kazn")):
+        return "krivično pravo"
+    if _contains_any(lowered, ("parnič", "parnic", "tužb", "tuzb")):
+        return "parnično pravo"
+    return "opšte pravo"
+
+
+def _infer_possible_regulations(question: str, legal_area: str) -> list[str]:
+    lowered = question.lower()
+    if "radno pravo" in legal_area:
+        return ["Zakon o radu"]
+    if _contains_any(lowered, ("trotinet", "saobra", "steta", "šteta", "odgovornost", "tužim", "tuzim")):
+        return [
+            "Zakon o obligacionim odnosima",
+            "Zakon o bezbednosti saobraćaja na putevima",
+        ]
+    if "krivično pravo" in legal_area:
+        return ["Krivični zakonik", "Zakonik o krivičnom postupku"]
+    if "parnično pravo" in legal_area:
+        return ["Zakon o parničnom postupku"]
+    return []
+
+
+def _apply_low_confidence_guard(decision: IntakeDecision) -> IntakeDecision:
+    if decision.confidence_score >= 0.6:
+        return decision
+    if decision.intent == INTENT_OUT_OF_SCOPE:
+        decision.intent = INTENT_CLARIFICATION_NEEDED
+    decision.needs_clarification = True
+    if not decision.clarifying_questions:
+        decision.clarifying_questions = [
+            "Možete li ukratko pojasniti pravni kontekst (šta se desilo, kada i ko su strane)?",
+        ]
+    decision.routing_decision = "clarification"
+    return decision
+
+
+def _build_openai_prompt(
+    question: str,
+    normalized_query: str,
+    entities: list[dict[str, Any]],
+) -> str:
+    entity_rows = [
+        {
+            "type": item.get("type", ""),
+            "text": item.get("text", ""),
+            "normalizedText": item.get("normalizedText", ""),
+        }
+        for item in entities[:12]
+    ]
+    return (
+        "Analiziraj korisničko pitanje za legal routing.\n"
+        "Vrati ISKLJUCIVO validan JSON bez markdown teksta.\n"
+        "Dozvoljeni intenti: LEGAL_SITUATION_ANALYSIS, REGULATION_LOOKUP, "
+        "CASE_LAW_SEARCH, COMBINED_REGULATION_AND_CASE_LAW, CLARIFICATION_NEEDED, OUT_OF_SCOPE.\n"
+        "Ako confidenceScore < 0.6, needsClarification mora biti true.\n"
+        "Ne vraćaj objašnjenja van JSON-a.\n\n"
+        f"originalQuestion: {question}\n"
+        f"normalizedQuestion: {normalized_query}\n"
+        f"entities: {json.dumps(entity_rows, ensure_ascii=False)}\n\n"
+        "JSON shape:\n"
+        "{\n"
+        '  "intent": "",\n'
+        '  "legalArea": "",\n'
+        '  "confidenceScore": 0.0,\n'
+        '  "needsClarification": false,\n'
+        '  "clarifyingQuestions": [],\n'
+        '  "needsRegulationLookup": false,\n'
+        '  "needsCaseLawSearch": false,\n'
+        '  "needsEchrCheck": false,\n'
+        '  "possibleRegulations": [],\n'
+        '  "searchQueryForRegulations": "",\n'
+        '  "searchQueryForCaseLaw": "",\n'
+        '  "routingDecision": ""\n'
+        "}\n"
+    )
+
+
+def _classify_with_openai(
+    question: str,
+    preprocessed: Any,
+    entities: list[dict[str, Any]],
+) -> IntakeDecision | None:
+    if not feature_enabled("ENABLE_LEGAL_INTAKE_AGENT", True):
+        return None
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    model_name = os.getenv("LEGAL_INTAKE_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    prompt = _build_openai_prompt(question, preprocessed.normalized_query, entities)
+    try:
+        model = ChatOpenAI(model=model_name, temperature=0, api_key=api_key)
+        response = model.invoke(prompt)
+    except Exception:
+        return None
+
+    payload = _parse_json_from_text(str(getattr(response, "content", "") or ""))
+    if not payload:
+        return None
+
+    intent = _normalize_intent(payload.get("intent", ""))
+    legal_area = str(payload.get("legalArea", "")).strip() or _infer_legal_area(question)
+    confidence = _safe_score(payload.get("confidenceScore"), 0.58)
+    needs_clarification = _safe_bool(payload.get("needsClarification"), confidence < 0.6)
+    clarifying_questions = _safe_list_str(payload.get("clarifyingQuestions"))
+    possible_regulations = _safe_list_str(payload.get("possibleRegulations"))
+    if not possible_regulations:
+        possible_regulations = _infer_possible_regulations(question, legal_area)
+
+    detected_facts = [str(entity.get("text", "")).strip() for entity in entities if entity.get("text")]
+    needs_regulation_lookup = _safe_bool(
+        payload.get("needsRegulationLookup"),
+        intent in {INTENT_REGULATION_LOOKUP, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
+    )
+    needs_case_law_search = _safe_bool(
+        payload.get("needsCaseLawSearch"),
+        intent in {INTENT_CASE_LAW_SEARCH, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
+    )
+    needs_echr_check = _safe_bool(
+        payload.get("needsEchrCheck"),
+        intent in {INTENT_LEGAL_SITUATION_ANALYSIS, INTENT_CASE_LAW_SEARCH, INTENT_COMBINED},
+    )
+
+    search_reg = str(payload.get("searchQueryForRegulations", "")).strip()
+    search_case = str(payload.get("searchQueryForCaseLaw", "")).strip()
+    if needs_regulation_lookup and not search_reg:
+        search_reg = preprocessed.expanded_query or preprocessed.normalized_query
+    if needs_case_law_search and not search_case:
+        search_case = preprocessed.expanded_query or preprocessed.normalized_query
+
+    return IntakeDecision(
+        intent=intent,
+        confidence_score=confidence,
+        confidence_label=_confidence_label(confidence),
+        legal_area=legal_area,
+        user_situation_summary=preprocessed.normalized_query[:280],
+        detected_facts=detected_facts[:12],
+        missing_facts=[],
+        needs_regulation_lookup=needs_regulation_lookup,
+        needs_case_law_search=needs_case_law_search,
+        needs_echr_check=needs_echr_check,
+        needs_clarification=needs_clarification,
+        needs_temporal_validity_check=needs_regulation_lookup,
+        possible_regulations=possible_regulations[:6],
+        clarifying_questions=clarifying_questions[:3],
+        search_query_for_regulations=search_reg,
+        search_query_for_case_law=search_case,
+        routing_decision=str(payload.get("routingDecision", "")).strip() or _default_routing(intent),
+        reasoning_summary="OpenAI legal intake analiza.",
+        intake_source="openai",
+        openai_intake_response=payload,
+    )
+
+
+def _classify_with_heuristics(
     question: str,
     preprocessed: Any,
     entities: list[dict[str, Any]],
@@ -100,6 +360,10 @@ def classify_intent(
         "šta da radim",
         "sta da radim",
         "imam problem",
+        "tužim",
+        "tuzim",
+        "šteta",
+        "steta",
     )
 
     wants_regulations = _contains_any(text, regulation_terms) or any(
@@ -146,13 +410,16 @@ def classify_intent(
             "obligacion",
             "kriv",
             "parnič",
+            "tuž",
+            "tuz",
         ),
     ):
         intent = INTENT_OUT_OF_SCOPE
-        score = 0.9
+        score = 0.82
         reasoning = "Upit ne deluje kao pravno pitanje."
 
     confidence_label = _confidence_label(score)
+    needs_clarification = confidence_label == "low"
     clarifying_questions: list[str] = []
     missing_facts: list[str] = []
     if confidence_label == "low":
@@ -173,30 +440,13 @@ def classify_intent(
 
     search_query_reg = preprocessed.expanded_query if wants_regulations or intent == INTENT_COMBINED else ""
     search_query_cases = preprocessed.expanded_query if wants_case_law or intent == INTENT_COMBINED else ""
-
-    routing = (
-        "combined_pipeline"
-        if intent == INTENT_COMBINED
-        else "regulation_pipeline"
-        if intent == INTENT_REGULATION_LOOKUP
-        else "case_law_pipeline"
-        if intent == INTENT_CASE_LAW_SEARCH
-        else "situation_pipeline"
-        if intent == INTENT_LEGAL_SITUATION_ANALYSIS
-        else "clarification"
-        if intent == INTENT_CLARIFICATION_NEEDED
-        else "out_of_scope"
-    )
-
-    legal_area = "opšte pravo"
-    if _contains_any(text, ("rad", "otkaz", "zaposlen")):
-        legal_area = "radno pravo"
-    elif _contains_any(text, ("ugovor", "obligacion", "štet", "stet")):
-        legal_area = "obligaciono pravo"
-    elif _contains_any(text, ("kriv", "kz", "kž", "kazn")):
-        legal_area = "krivično pravo"
-    elif _contains_any(text, ("parnič", "parnic", "tužb", "tuzb")):
-        legal_area = "parnično pravo"
+    legal_area = _infer_legal_area(text)
+    possible_regulations = _infer_possible_regulations(question, legal_area)
+    needs_echr_check = intent in {
+        INTENT_LEGAL_SITUATION_ANALYSIS,
+        INTENT_CASE_LAW_SEARCH,
+        INTENT_COMBINED,
+    }
 
     return IntakeDecision(
         intent=intent,
@@ -210,15 +460,30 @@ def classify_intent(
         in {INTENT_REGULATION_LOOKUP, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
         needs_case_law_search=intent
         in {INTENT_CASE_LAW_SEARCH, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
+        needs_echr_check=needs_echr_check,
+        needs_clarification=needs_clarification,
         needs_temporal_validity_check=intent
         in {
             INTENT_REGULATION_LOOKUP,
             INTENT_COMBINED,
             INTENT_LEGAL_SITUATION_ANALYSIS,
         },
+        possible_regulations=possible_regulations,
         clarifying_questions=clarifying_questions[:3],
         search_query_for_regulations=search_query_reg,
         search_query_for_case_law=search_query_cases,
-        routing_decision=routing,
+        routing_decision=_default_routing(intent),
         reasoning_summary=reasoning,
+        intake_source="heuristic",
     )
+
+
+def classify_intent(
+    question: str,
+    preprocessed: Any,
+    entities: list[dict[str, Any]],
+) -> IntakeDecision:
+    openai_decision = _classify_with_openai(question, preprocessed, entities)
+    if openai_decision is not None:
+        return _apply_low_confidence_guard(openai_decision)
+    return _apply_low_confidence_guard(_classify_with_heuristics(question, preprocessed, entities))

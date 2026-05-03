@@ -92,6 +92,7 @@ Feature flagovi:
 - `ENABLE_POST_ANSWER_SURVEY=true`
 - `ENABLE_ENTITY_RECOGNITION=true`
 - `ENABLE_ECHR_CHECK=true`
+- `LEGAL_INTAKE_MODEL=gpt-4o-mini` (opciono, OpenAI intake model)
 
 Top-k podešavanja:
 

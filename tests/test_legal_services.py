@@ -9,6 +9,7 @@ from api.services.echr_checker import search_echr_analogies
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
     INTENT_CASE_LAW_SEARCH,
+    INTENT_LEGAL_SITUATION_ANALYSIS,
     INTENT_REGULATION_LOOKUP,
     classify_intent,
 )
@@ -38,6 +39,29 @@ def test_intake_classifies_case_law_search() -> None:
     )
     assert decision.intent == INTENT_CASE_LAW_SEARCH
     assert decision.needs_case_law_search is True
+
+
+def test_intake_low_confidence_prefers_clarification_over_out_of_scope(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    preprocessed = preprocess_query("hmm ok")
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent("hmm ok", preprocessed, entities)
+    assert decision.confidence_score < 0.6
+    assert decision.intent != "OUT_OF_SCOPE"
+    assert decision.intent == "CLARIFICATION_NEEDED"
+
+
+def test_intake_situation_in_plain_language_maps_to_legal_situation(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Pao sam sa trotineta koga da tuzim"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent == INTENT_LEGAL_SITUATION_ANALYSIS
+    assert decision.needs_regulation_lookup is True
+    assert decision.needs_case_law_search is True
+    assert decision.needs_echr_check is True
+    assert decision.possible_regulations
 
 
 def test_legal_act_parser_extracts_article_paragraph_and_point() -> None:
