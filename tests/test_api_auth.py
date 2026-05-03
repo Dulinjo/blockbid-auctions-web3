@@ -95,3 +95,30 @@ def test_chat_explicit_echr_query_runs_without_local_index_dependency(monkeypatc
     assert echr_debug.get("localCaseLawRequired") is False
     assert echr_debug.get("localIndexRequired") is False
     assert "razumnom roku" in payload.get("answer", "").lower()
+
+
+def test_chat_inheritance_followup_whole_procedure_uses_orientation_not_clarification(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    monkeypatch.setenv("ENABLE_E_SERVICES_GUIDE", "false")
+    monkeypatch.delenv("SLUZBENI_GLASNIK_API_URL", raising=False)
+
+    session_id = "inheritance-session"
+    first = client.post(
+        "/api/chat",
+        json={"query": "nasledio sam kucu kako da je uknjizim", "sessionId": session_id},
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert "postupak obično ide ovako" in first_payload["answer"].lower()
+    assert "na koji konkretan postupak mislite" not in first_payload["answer"].lower()
+
+    followup = client.post(
+        "/api/chat",
+        json={"query": "ceo postupak", "sessionId": session_id},
+    )
+    assert followup.status_code == 200
+    payload = followup.json()
+    assert "postupak obično ide ovako" in payload["answer"].lower()
+    assert "na koji konkretan postupak mislite" not in payload["answer"].lower()

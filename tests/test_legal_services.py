@@ -99,6 +99,18 @@ def test_intake_inheritance_plain_language_not_out_of_scope(monkeypatch) -> None
     assert decision.needs_regulation_lookup is True
 
 
+def test_intake_inheritance_registration_plain_language_prefers_orientation(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "nasledio sam kucu kako da je uknjizim"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent == INTENT_LEGAL_SITUATION_ANALYSIS
+    assert decision.needs_clarification is False
+    assert decision.needs_regulation_lookup is True
+    assert decision.needs_case_law_search is False
+
+
 def test_intake_safety_plain_language_prioritizes_eservices(monkeypatch) -> None:
     monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
     question = "Bojim se, partner mi preti."

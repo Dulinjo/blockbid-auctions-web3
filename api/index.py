@@ -40,6 +40,7 @@ from api.services.research_interaction_logger import interaction_logger
 from api.services.temporal_validity_checker import TemporalValidityChecker
 
 app = FastAPI(title="LexVibe API", version="1.0.0")
+SESSION_LAST_CLEAR_QUESTION: dict[str, str] = {}
 
 ECHR_EXPLICIT_TERMS = (
     "strasbourg",
@@ -223,9 +224,29 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     k_config = get_retrieval_limits()
 
     preprocessed = preprocess_query(payload.query)
+    incoming_query = preprocessed.normalized_query.strip()
+    previous_clear = SESSION_LAST_CLEAR_QUESTION.get(session_id, "")
+    followup_short_tokens = {
+        "ceo postupak",
+        "celo postupak",
+        "ceo proces",
+        "cela procedura",
+        "kako ide postupak",
+        "sve korake",
+    }
+    classification_query = payload.query
+    if incoming_query.lower() in followup_short_tokens and previous_clear:
+        merged_query = f"{previous_clear}. {incoming_query}"
+        classification_query = merged_query
+        preprocessed = preprocess_query(merged_query)
+        query_entities = entity_service.extract(preprocessed.normalized_query, source="user_query")
+    else:
+        query_entities = entity_service.extract(preprocessed.normalized_query, source="user_query")
+        if len(incoming_query) >= 16:
+            SESSION_LAST_CLEAR_QUESTION[session_id] = incoming_query
+
     query_for_retrieval = preprocessed.expanded_query or preprocessed.normalized_query
-    query_entities = entity_service.extract(preprocessed.normalized_query, source="user_query")
-    intake = classify_intent(payload.query, preprocessed, query_entities)
+    intake = classify_intent(classification_query, preprocessed, query_entities)
     openai_response = intake.openai_intake_response or intake.to_json()
     print(
         "[legal-intake-debug]",

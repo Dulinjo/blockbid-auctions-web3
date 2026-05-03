@@ -364,6 +364,13 @@ def _build_echr_search_query(question: str, possible_articles: list[str]) -> str
     return " ".join(base_terms).strip()
 
 
+def _looks_like_inheritance_registration(text: str) -> bool:
+    lowered = text.lower()
+    inheritance_terms = ("nasled", "ostavin", "nasleđ")
+    registration_terms = ("uknjiz", "uknjiž", "katastar", "nepokretn")
+    return _contains_any(lowered, inheritance_terms) and _contains_any(lowered, registration_terms)
+
+
 def _apply_contextual_overrides(decision: IntakeDecision, question: str) -> IntakeDecision:
     text = question.lower()
     mentions_echr = _contains_echr_reference(text)
@@ -376,6 +383,19 @@ def _apply_contextual_overrides(decision: IntakeDecision, question: str) -> Inta
     )
     ambiguous_delivery = _is_ambiguous_delivery_phrase(text)
     e_service_intent = decision.e_service_intent or _infer_e_service_intent(question)
+    if _looks_like_inheritance_registration(question):
+        decision.intent = INTENT_LEGAL_SITUATION_ANALYSIS
+        decision.confidence_score = max(decision.confidence_score, 0.83)
+        decision.confidence_label = _confidence_label(decision.confidence_score)
+        decision.needs_clarification = False
+        decision.clarifying_questions = []
+        decision.needs_case_law_search = False
+        decision.needs_regulation_lookup = True
+        decision.needs_e_services_guidance = True
+        decision.e_service_intent = decision.e_service_intent or "status_check_or_registry"
+        if "SRV-001" not in decision.possible_services:
+            decision.possible_services = ["SRV-001", *decision.possible_services][:4]
+        decision.routing_decision = "situation_pipeline"
 
     if e_service_intent == "urgent_safety":
         decision.intent = INTENT_LEGAL_SITUATION_ANALYSIS

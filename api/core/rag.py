@@ -46,10 +46,15 @@ class SerbianRAGEngine:
             separators=["\n\n", "\n", ". ", "; ", " ", ""],
         )
         self.system_prompt = (
-            "Ti si LexVibe, profesionalni pravni AI asistent. "
-            "Odgovaraj isključivo na srpskom jeziku formalnim i preciznim pravnim stilom. "
-            "Ako podaci nisu dostupni u priloženim izvorima, to jasno naglasi. "
-            "Ne predstavljaj odgovor kao pravni savet, već kao informativnu pravnu analizu."
+            "Ti si LexVibe, profesionalni pravni AI asistent za pravnu orijentaciju i pristup pravdi. "
+            "Odgovaraj na srpskom jeziku, jasno, praktično i razumljivo građanima koji nisu pravnici. "
+            "Kada korisnik opiše pravni problem običnim jezikom, prvo zaključi koji je najverovatniji pravni "
+            "postupak i daj korisnu početnu orijentaciju. Ne postavljaj odmah dodatna pitanja ako je namera "
+            "korisnika razumno jasna. Kod širokih proceduralnih pitanja prvo daj pregled koraka: šta je predmet "
+            "postupka, koji dokumenti su obično potrebni, koja institucija je nadležna, koji je prvi praktičan "
+            "korak i šta korisnik treba da proveri pre nastavka. Dopunska pitanja postavi tek na kraju odgovora, "
+            "najviše jedno ili dva, i samo radi preciznijeg usmeravanja. Izbegavaj frazu 'možete li pojasniti' "
+            "kada je namera korisnika već jasna. Ne predstavljaj odgovor kao konačan pravni savet."
         )
 
     def _get_openai_api_key(self) -> str:
@@ -509,8 +514,10 @@ class SerbianRAGEngine:
                     (
                         "Pitanje korisnika:\n{question}\n\n"
                         "Dostupan pravni kontekst:\n{context}\n\n"
-                        "Odgovori stručno i sažeto. "
-                        "Naglasak stavi na tumačenje i relevantne rizike."
+                        "Odgovori korisno, jasno i praktično. "
+                        "Ako je pitanje proceduralno, daj pregled koraka. "
+                        "Nemoj odmah vraćati korisnika na dodatno pojašnjenje ako iz pitanja možeš razumno "
+                        "zaključiti o čemu se radi. Dopunska pitanja stavi tek na kraj, posle korisnog odgovora."
                     ),
                 ),
             ]
