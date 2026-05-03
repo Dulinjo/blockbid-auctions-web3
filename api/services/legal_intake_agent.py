@@ -206,7 +206,18 @@ def _infer_e_service_intent(question: str) -> str:
         return "technical_support"
     if _contains_any(
         lowered,
-        ("koverta", "dopis", "rešenje", "resenje", "poziv", "broj predmeta", "posl. br", "upisnik"),
+        (
+            "koverta",
+            "dopis",
+            "rešenje",
+            "resenje",
+            "poziv",
+            "broj predmeta",
+            "posl. br",
+            "upisnik",
+            "stiglo",
+            "tok predmeta",
+        ),
     ):
         return "received_letter_or_case_number"
     if _contains_any(lowered, ("status predmeta", "gde da proverim", "kome da se obratim", "pisarnica")):
@@ -233,6 +244,131 @@ def _infer_possible_services(question: str, legal_area: str) -> list[str]:
     if "radno pravo" in legal_area and "SRV-003" not in services:
         services.append("SRV-003")
     return services[:4]
+
+
+def _contains_echr_reference(text: str) -> bool:
+    return _contains_any(
+        text,
+        (
+            "echr",
+            "esljp",
+            "hudoc",
+            "strazbur",
+            "strasbourg",
+            "evropski sud za ljudska prava",
+            "evropska konvencija",
+            "konvencija",
+        ),
+    )
+
+
+def _has_human_rights_dimension(text: str) -> bool:
+    return _contains_any(
+        text,
+        (
+            "ljudska prava",
+            "policija",
+            "pritvor",
+            "diskrimin",
+            "privatnost",
+            "sloboda izrazavanja",
+            "sloboda izražavanja",
+            "duzina postupka",
+            "dugo traje",
+            "razumnom roku",
+            "delotvorni pravni lek",
+            "efikasan pravni lek",
+        ),
+    )
+
+
+def _is_ambiguous_delivery_phrase(text: str) -> bool:
+    normalized = " ".join(text.split())
+    return normalized in {"tok predmeta", "stiglo mi je nesto", "stiglo mi je nešto"} or _contains_any(
+        normalized,
+        ("stiglo mi je nesto", "stiglo mi je nešto"),
+    )
+
+
+def _build_envelope_clarifying_questions() -> list[str]:
+    return [
+        "Koji organ piše na dopisu ili koverti?",
+        "Da li postoji broj predmeta / Posl. br. / Broj?",
+        "Koji je tip akta: poziv, rešenje, presuda, obaveštenje ili zaključak?",
+    ]
+
+
+def _apply_contextual_overrides(decision: IntakeDecision, question: str) -> IntakeDecision:
+    text = question.lower()
+    mentions_echr = _contains_echr_reference(text)
+    envelope_like = bool(
+        re.search(r"\b[apu]\s*[-]?\s*\d{1,6}\s*/\s*(19|20)\d{2}\b", text)
+        or any(
+            token in text
+            for token in ("koverta", "dopis", "posl. br", "broj predmeta", "rešenje", "resenje")
+        )
+    )
+    ambiguous_delivery = _is_ambiguous_delivery_phrase(text)
+    e_service_intent = decision.e_service_intent or _infer_e_service_intent(question)
+
+    if e_service_intent == "urgent_safety":
+        decision.intent = INTENT_LEGAL_SITUATION_ANALYSIS
+        decision.confidence_score = max(decision.confidence_score, 0.9)
+        decision.confidence_label = _confidence_label(decision.confidence_score)
+        decision.needs_regulation_lookup = False
+        decision.needs_case_law_search = False
+        decision.needs_e_services_guidance = True
+        decision.needs_envelope_clue_analysis = False
+        decision.needs_clarification = False
+        decision.clarifying_questions = []
+
+    if e_service_intent == "technical_support":
+        decision.intent = INTENT_LEGAL_SITUATION_ANALYSIS
+        decision.confidence_score = max(decision.confidence_score, 0.82)
+        decision.confidence_label = _confidence_label(decision.confidence_score)
+        decision.needs_regulation_lookup = False
+        decision.needs_case_law_search = False
+        decision.needs_e_services_guidance = True
+        decision.needs_clarification = False
+        decision.clarifying_questions = []
+
+    if envelope_like:
+        decision.needs_envelope_clue_analysis = True
+        decision.needs_e_services_guidance = True
+        if e_service_intent in {"received_letter_or_case_number", "status_check_or_registry"}:
+            decision.needs_case_law_search = False
+            decision.needs_regulation_lookup = False
+            if decision.intent in {INTENT_CASE_LAW_SEARCH, INTENT_OUT_OF_SCOPE}:
+                decision.intent = INTENT_LEGAL_SITUATION_ANALYSIS
+
+    if ambiguous_delivery:
+        decision.intent = INTENT_CLARIFICATION_NEEDED
+        decision.confidence_score = min(decision.confidence_score, 0.58)
+        decision.confidence_label = _confidence_label(decision.confidence_score)
+        decision.needs_clarification = True
+        decision.needs_case_law_search = False
+        decision.needs_regulation_lookup = False
+        decision.needs_e_services_guidance = True
+        decision.needs_envelope_clue_analysis = True
+        decision.clarifying_questions = _build_envelope_clarifying_questions()
+
+    if mentions_echr:
+        if decision.intent in {INTENT_CLARIFICATION_NEEDED, INTENT_OUT_OF_SCOPE}:
+            decision.intent = INTENT_CASE_LAW_SEARCH
+        decision.needs_case_law_search = True
+        decision.needs_echr_check = True
+        decision.needs_clarification = False
+        decision.clarifying_questions = []
+        decision.confidence_score = max(decision.confidence_score, 0.84)
+        decision.confidence_label = _confidence_label(decision.confidence_score)
+
+    if decision.intent == INTENT_CLARIFICATION_NEEDED and not decision.clarifying_questions:
+        decision.clarifying_questions = [
+            "Da li želite analizu pravne situacije, pronalazak propisa, sudsku praksu ili kombinovano?",
+        ]
+    if decision.intent == INTENT_CLARIFICATION_NEEDED:
+        decision.needs_clarification = True
+    return decision
 
 
 def _apply_low_confidence_guard(decision: IntakeDecision) -> IntakeDecision:
@@ -416,8 +552,9 @@ def _classify_with_heuristics(
         "rev",
         "kž",
         "kz",
-        "broj predmeta",
         "kako su sudovi",
+        "sličnih presuda",
+        "slicnih presuda",
     )
     situation_terms = (
         "šta mogu",
@@ -436,10 +573,28 @@ def _classify_with_heuristics(
     wants_regulations = _contains_any(text, regulation_terms) or any(
         entity.get("type") == "LEGAL_ACT" for entity in entities
     )
-    wants_case_law = _contains_any(text, case_terms) or any(
-        entity.get("type") in {"COURT", "CASE_NUMBER"} for entity in entities
-    )
+    wants_case_law = _contains_any(text, case_terms)
     legal_situation = _contains_any(text, situation_terms)
+    legal_area = _infer_legal_area(text)
+    e_service_intent = _infer_e_service_intent(question)
+    possible_services = _infer_possible_services(question, legal_area)
+    mentions_echr = _contains_echr_reference(text)
+    human_rights_dimension = _has_human_rights_dimension(text)
+    envelope_like = bool(
+        re.search(r"\b[apu]\s*[-]?\s*\d{1,6}\s*/\s*(19|20)\d{2}\b", question.lower())
+        or any(
+            token in question.lower()
+            for token in (
+                "koverta",
+                "dopis",
+                "posl. br",
+                "broj predmeta",
+                "rešenje",
+                "resenje",
+                "stiglo mi je",
+            )
+        )
+    )
 
     intent = INTENT_CLARIFICATION_NEEDED
     score = 0.45
@@ -457,6 +612,19 @@ def _classify_with_heuristics(
         intent = INTENT_REGULATION_LOOKUP
         score = 0.82
         reasoning = "Detektovani izrazi i entiteti upućuju na propise."
+    elif mentions_echr:
+        intent = INTENT_CASE_LAW_SEARCH
+        score = 0.84
+        reasoning = "Detektovano je eksplicitno pominjanje ECHR/Strazbur konteksta."
+    elif legal_situation or e_service_intent or possible_services:
+        if _contains_any(text, ("stiglo mi je nesto", "stiglo mi je nešto", "stiglo mi je")) and not envelope_like:
+            intent = INTENT_CLARIFICATION_NEEDED
+            score = 0.55
+            reasoning = "Potreban je dodatni kontekst o dopisu/pošiljaocu pre usmeravanja."
+        else:
+            intent = INTENT_LEGAL_SITUATION_ANALYSIS
+            score = 0.76
+            reasoning = "Opis životne situacije sugeriše pravnu analizu i praktično usmeravanje."
     elif legal_situation:
         intent = INTENT_LEGAL_SITUATION_ANALYSIS
         score = 0.74
@@ -479,6 +647,14 @@ def _classify_with_heuristics(
             "parnič",
             "tuž",
             "tuz",
+            "nasled",
+            "ostavin",
+            "predmet",
+            "koverta",
+            "euprava",
+            "uprava",
+            "preti",
+            "nasilje",
         ),
     ):
         intent = INTENT_OUT_OF_SCOPE
@@ -505,24 +681,90 @@ def _classify_with_heuristics(
     ):
         missing_facts.append("Naziv suda ili broj predmeta (ako je poznat).")
 
-    search_query_reg = preprocessed.expanded_query if wants_regulations or intent == INTENT_COMBINED else ""
-    search_query_cases = preprocessed.expanded_query if wants_case_law or intent == INTENT_COMBINED else ""
-    legal_area = _infer_legal_area(text)
-    possible_regulations = _infer_possible_regulations(question, legal_area)
-    e_service_intent = _infer_e_service_intent(question)
-    needs_e_services_guidance = e_service_intent != ""
-    needs_envelope_clue_analysis = bool(
-        re.search(r"\b[apu]\s*[-]?\s*\d{1,6}\s*/\s*(19|20)\d{2}\b", question.lower())
-        or any(
-            token in question.lower()
-            for token in ("koverta", "dopis", "posl. br", "broj predmeta", "rešenje", "resenje")
-        )
+    search_query_reg = (
+        preprocessed.expanded_query
+        if wants_regulations or intent in {INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS}
+        else ""
     )
-    needs_echr_check = intent in {
-        INTENT_LEGAL_SITUATION_ANALYSIS,
-        INTENT_CASE_LAW_SEARCH,
-        INTENT_COMBINED,
-    }
+    search_query_cases = (
+        preprocessed.expanded_query
+        if wants_case_law or intent in {INTENT_COMBINED, INTENT_CASE_LAW_SEARCH}
+        else ""
+    )
+    possible_regulations = _infer_possible_regulations(question, legal_area)
+    needs_e_services_guidance = e_service_intent != "" or _contains_any(
+        text,
+        (
+            "gde da proverim",
+            "kome da se obratim",
+            "koverta",
+            "broj predmeta",
+            "euprava",
+            "prijavim",
+            "ulogujem",
+            "umro",
+            "preminuo",
+            "nasledstvo",
+            "ostavina",
+            "bojim se",
+            "nasilje",
+            "preti",
+            "hitno",
+            "tok predmeta",
+            "stiglo",
+        ),
+    )
+    needs_envelope_clue_analysis = envelope_like
+    needs_regulation_lookup = intent in {INTENT_REGULATION_LOOKUP, INTENT_COMBINED}
+    needs_case_law_search = intent in {INTENT_CASE_LAW_SEARCH, INTENT_COMBINED}
+
+    if intent == INTENT_LEGAL_SITUATION_ANALYSIS:
+        if e_service_intent in {
+            "technical_support",
+            "status_check_or_registry",
+            "received_letter_or_case_number",
+            "urgent_safety",
+        }:
+            needs_regulation_lookup = False
+            needs_case_law_search = False
+            search_query_reg = ""
+            search_query_cases = ""
+        else:
+            needs_regulation_lookup = True
+            needs_case_law_search = True
+
+    if mentions_echr:
+        needs_case_law_search = True
+        if not search_query_cases:
+            search_query_cases = preprocessed.expanded_query
+
+    if e_service_intent == "urgent_safety":
+        needs_regulation_lookup = False
+        needs_case_law_search = False
+        search_query_reg = ""
+        search_query_cases = ""
+
+    needs_echr_check = mentions_echr or (
+        intent
+        in {
+            INTENT_LEGAL_SITUATION_ANALYSIS,
+            INTENT_CASE_LAW_SEARCH,
+            INTENT_COMBINED,
+        }
+        and human_rights_dimension
+    )
+
+    if _is_ambiguous_delivery_phrase(text):
+        intent = INTENT_CLARIFICATION_NEEDED
+        score = 0.58
+        confidence_label = _confidence_label(score)
+        needs_clarification = True
+        needs_regulation_lookup = False
+        needs_case_law_search = False
+        needs_e_services_guidance = True
+        needs_envelope_clue_analysis = True
+        reasoning = "Potreban je dodatni kontekst o dokumentu i pošiljaocu."
+        clarifying_questions = _build_envelope_clarifying_questions()
 
     return IntakeDecision(
         intent=intent,
@@ -532,22 +774,15 @@ def _classify_with_heuristics(
         user_situation_summary=preprocessed.normalized_query[:280],
         detected_facts=detected_facts,
         missing_facts=missing_facts[:3],
-        needs_regulation_lookup=intent
-        in {INTENT_REGULATION_LOOKUP, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
-        needs_case_law_search=intent
-        in {INTENT_CASE_LAW_SEARCH, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
+        needs_regulation_lookup=needs_regulation_lookup,
+        needs_case_law_search=needs_case_law_search,
         needs_e_services_guidance=needs_e_services_guidance,
         needs_envelope_clue_analysis=needs_envelope_clue_analysis,
         needs_echr_check=needs_echr_check,
         needs_clarification=needs_clarification,
-        needs_temporal_validity_check=intent
-        in {
-            INTENT_REGULATION_LOOKUP,
-            INTENT_COMBINED,
-            INTENT_LEGAL_SITUATION_ANALYSIS,
-        },
+        needs_temporal_validity_check=needs_regulation_lookup,
         possible_regulations=possible_regulations,
-        possible_services=_infer_possible_services(question, legal_area),
+        possible_services=possible_services,
         e_service_intent=e_service_intent,
         clarifying_questions=clarifying_questions[:3],
         search_query_for_regulations=search_query_reg,
@@ -565,5 +800,6 @@ def classify_intent(
 ) -> IntakeDecision:
     openai_decision = _classify_with_openai(question, preprocessed, entities)
     if openai_decision is not None:
-        return _apply_low_confidence_guard(openai_decision)
-    return _apply_low_confidence_guard(_classify_with_heuristics(question, preprocessed, entities))
+        return _apply_low_confidence_guard(_apply_contextual_overrides(openai_decision, question))
+    heuristic_decision = _classify_with_heuristics(question, preprocessed, entities)
+    return _apply_low_confidence_guard(_apply_contextual_overrides(heuristic_decision, question))

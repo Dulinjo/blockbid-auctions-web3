@@ -61,7 +61,7 @@ def test_intake_situation_in_plain_language_maps_to_legal_situation(monkeypatch)
     assert decision.intent == INTENT_LEGAL_SITUATION_ANALYSIS
     assert decision.needs_regulation_lookup is True
     assert decision.needs_case_law_search is True
-    assert decision.needs_echr_check is True
+    assert decision.needs_echr_check is False
     assert decision.possible_regulations
 
 
@@ -73,6 +73,74 @@ def test_intake_envelope_clue_flow_flags(monkeypatch) -> None:
     decision = classify_intent(question, preprocessed, entities)
     assert decision.needs_e_services_guidance is True
     assert decision.needs_envelope_clue_analysis is True
+
+
+def test_intake_detects_euprava_as_service_guidance_not_out_of_scope(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Ne mogu da se prijavim na eUpravu."
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent != "OUT_OF_SCOPE"
+    assert decision.needs_e_services_guidance is True
+    assert decision.e_service_intent == "technical_support"
+    assert decision.needs_case_law_search is False
+
+
+def test_intake_inheritance_plain_language_not_out_of_scope(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Umro mi je otac, sta sada oko nasledstva?"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent == INTENT_LEGAL_SITUATION_ANALYSIS
+    assert "SRV-001" in decision.possible_services
+    assert decision.needs_regulation_lookup is True
+
+
+def test_intake_safety_plain_language_prioritizes_eservices(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Bojim se, partner mi preti."
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent == INTENT_LEGAL_SITUATION_ANALYSIS
+    assert decision.e_service_intent == "urgent_safety"
+    assert decision.needs_e_services_guidance is True
+    assert decision.needs_case_law_search is False
+    assert decision.needs_regulation_lookup is False
+
+
+def test_intake_echr_explicit_query_triggers_echr_check(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Sudjenje mi traje 8 godina, da li je Srbija vec padala u Strazburu zbog toga?"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.needs_echr_check is True
+    assert decision.intent in {INTENT_CASE_LAW_SEARCH, INTENT_LEGAL_SITUATION_ANALYSIS}
+
+
+def test_intake_ambiguous_stiglo_mi_je_nesto_prefers_clarification(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Stiglo mi je nesto, sta sad?"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent == "CLARIFICATION_NEEDED"
+    assert decision.needs_envelope_clue_analysis is True
+    assert decision.clarifying_questions
+
+
+def test_intake_tok_predmeta_prefers_clarification(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "tok predmeta"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.intent == "CLARIFICATION_NEEDED"
+    assert decision.needs_e_services_guidance is True
+    assert decision.clarifying_questions
 
 
 def test_e_services_search_returns_status_case_service() -> None:
