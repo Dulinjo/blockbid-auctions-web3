@@ -17,6 +17,7 @@ from api.services.post_answer_survey import save_post_answer_survey
 from api.services.query_preprocessor import preprocess_query
 from api.services.research_interaction_logger import interaction_logger
 from api.services.temporal_validity_checker import TemporalValidityChecker
+from api.services.case_law_retriever import rerank_and_limit_cases
 
 
 def test_intake_classifies_regulation_lookup() -> None:
@@ -182,3 +183,48 @@ def test_echr_search_fallback_when_feature_disabled(monkeypatch) -> None:
     )
     assert result["echrCheckPerformed"] is False
     assert "isključena" in result["echrLimitations"]
+
+
+def test_case_law_retriever_top_k_limits() -> None:
+    rows = [
+        {"similarityScore": 0.10, "summary": "A", "legalArea": "radno pravo", "court": "Apelacioni sud"},
+        {"similarityScore": 0.91, "summary": "B", "legalArea": "radno pravo", "court": "Apelacioni sud"},
+        {"similarityScore": 0.73, "summary": "C", "legalArea": "radno pravo", "court": "Apelacioni sud"},
+        {"similarityScore": 0.51, "summary": "D", "legalArea": "radno pravo", "court": "Apelacioni sud"},
+    ]
+    ranked = rerank_and_limit_cases(
+        rows,
+        query="otkaz i rok",
+        extracted_facts=["otkaz", "rok"],
+        reranked_k=3,
+        analyze_k=2,
+        max_in_answer=1,
+    )
+    assert len(ranked["reranked"]) == 3
+    assert len(ranked["analyzed"]) == 2
+    assert len(ranked["displayed"]) == 1
+    assert ranked["displayed"][0]["relevanceLabel"] in {"high", "medium", "low"}
+
+
+def test_echr_top_k_counts_present() -> None:
+    result = search_echr_analogies(
+        {
+            "userQuestion": "Da li je povređeno pravo na suđenje u razumnom roku?",
+            "extractedFacts": ["postupak traje 9 godina"],
+            "possibleConventionArticles": ["Article 6"],
+            "preferSerbiaCases": True,
+            "maxResults": 3,
+            "triggeredBy": "explicit_user_request",
+        }
+    )
+    metrics = result.get("topKMetrics", {})
+    for key in (
+        "serbiaHudocInitialResultsCount",
+        "serbiaHudocRerankedResultsCount",
+        "serbiaHudocAnalyzedResultsCount",
+        "generalHudocInitialResultsCount",
+        "generalHudocRerankedResultsCount",
+        "generalHudocAnalyzedResultsCount",
+        "echrDisplayedResultsCount",
+    ):
+        assert key in metrics

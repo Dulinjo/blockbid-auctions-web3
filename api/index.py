@@ -17,7 +17,7 @@ from api.core.processor import (
 )
 from api.core.rag import rag_engine
 from api.services.case_law_retriever import CaseLawRetriever
-from api.services.config import get_feature_flags
+from api.services.config import get_feature_flags, get_retrieval_limits
 from api.services.echr_checker import search_echr_analogies
 from api.services.entity_recognition_and_linking import entity_service
 from api.services.legal_act_parser import LegalActParser
@@ -136,6 +136,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     started = time.perf_counter()
     session_id = payload.sessionId or str(uuid4())
     flags = get_feature_flags()
+    k_config = get_retrieval_limits()
 
     preprocessed = preprocess_query(payload.query)
     query_for_retrieval = preprocessed.expanded_query or preprocessed.normalized_query
@@ -247,6 +248,13 @@ async def chat(payload: ChatRequest) -> ChatResponse:
         "hudocQuerySerbia": "",
         "hudocQueryGeneral": "",
         "echrAnalogyConfidence": "low",
+        "serbiaHudocInitialResultsCount": 0,
+        "serbiaHudocRerankedResultsCount": 0,
+        "serbiaHudocAnalyzedResultsCount": 0,
+        "generalHudocInitialResultsCount": 0,
+        "generalHudocRerankedResultsCount": 0,
+        "generalHudocAnalyzedResultsCount": 0,
+        "echrDisplayedResultsCount": 0,
     }
     citations: list[dict] = []
     cache_hit = False
@@ -357,12 +365,25 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             INTENT_CASE_LAW_SEARCH,
             INTENT_COMBINED,
         } or intake.needs_case_law_search
+        domestic_topk = {
+            "domesticCaseTopKUsed": should_use_case_law,
+            "domesticInitialResultsCount": 0,
+            "domesticRerankedResultsCount": 0,
+            "domesticAnalyzedResultsCount": 0,
+            "domesticDisplayedResultsCount": 0,
+            "hudocTopKUsed": False,
+        }
         if should_use_case_law:
-            case_rows = case_law_retriever.search(
+            case_result = case_law_retriever.search(
                 intake.search_query_for_case_law or query_for_retrieval,
                 extracted_facts=intake.detected_facts,
-                top_k=5,
+                initial_k=k_config.domestic_case_initial_k,
+                reranked_k=k_config.domestic_case_reranked_k,
+                analyze_k=k_config.domestic_case_analyze_k,
+                display_k=k_config.max_domestic_cases_in_answer,
             )
+            case_rows = case_result.get("displayedCases", [])
+            domestic_topk = case_result.get("topkMetrics", domestic_topk)
             case_entities = entity_service.extract(
                 "\n".join(case.get("summary", "") for case in case_rows), source="case_law"
             )
@@ -393,7 +414,13 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                     "extractedFacts": intake.detected_facts,
                     "possibleConventionArticles": [],
                     "preferSerbiaCases": True,
-                    "maxResults": 3,
+                    "maxResults": k_config.max_echr_cases_in_answer,
+                    "serbiaInitialK": k_config.serbia_hudoc_initial_k,
+                    "serbiaRerankedK": k_config.serbia_hudoc_reranked_k,
+                    "serbiaAnalyzeK": k_config.serbia_hudoc_analyze_k,
+                    "generalInitialK": k_config.general_hudoc_initial_k,
+                    "generalRerankedK": k_config.general_hudoc_reranked_k,
+                    "generalAnalyzeK": k_config.general_hudoc_analyze_k,
                     "triggeredBy": (
                         "explicit_user_request"
                         if any(
@@ -415,6 +442,9 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                     ),
                 }
             )
+            topk_metrics = echr_result.get("topKMetrics", {})
+            if isinstance(topk_metrics, dict):
+                echr_result.update(topk_metrics)
 
         if not regulation_rows and not case_rows:
             fallback = rag_engine.answer(query_for_retrieval)
@@ -466,6 +496,16 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 echr_section = (
                     "\n\nProvera prakse Evropskog suda za ljudska prava trenutno nije dostupna.\n"
                 )
+            elif echr_result.get("echrCheckPerformed"):
+                echr_section = (
+                    f"{echr_section}\nProvera je izvršena kroz ciljanu top-k HUDOC pretragu. "
+                    "Prvo su provereni predmeti protiv Srbije, a zatim, ako nije pronađena dovoljna "
+                    "analogija, šira praksa Evropskog suda za ljudska prava.\n"
+                )
+            if case_rows:
+                answer = (
+                    f"{answer}\n\nPrikazujem najrelevantnije pronađene odluke prema dostupnoj top-k pretrazi."
+                )
             answer = f"{answer}{echr_section}"
             structured = {
                 "intent": intake.intent,
@@ -490,6 +530,29 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                     "echrAnalysis": echr_result.get("echrAnalysis", ""),
                     "echrLimitations": echr_result.get("echrLimitations", ""),
                     "errors": echr_result.get("errors", []),
+                },
+                "topK": {
+                    **domestic_topk,
+                    "hudocTopKUsed": bool(echr_result.get("echrCheckPerformed", False)),
+                    "serbiaHudocInitialResultsCount": echr_result.get(
+                        "serbiaHudocInitialResultsCount", 0
+                    ),
+                    "serbiaHudocRerankedResultsCount": echr_result.get(
+                        "serbiaHudocRerankedResultsCount", 0
+                    ),
+                    "serbiaHudocAnalyzedResultsCount": echr_result.get(
+                        "serbiaHudocAnalyzedResultsCount", 0
+                    ),
+                    "generalHudocInitialResultsCount": echr_result.get(
+                        "generalHudocInitialResultsCount", 0
+                    ),
+                    "generalHudocRerankedResultsCount": echr_result.get(
+                        "generalHudocRerankedResultsCount", 0
+                    ),
+                    "generalHudocAnalyzedResultsCount": echr_result.get(
+                        "generalHudocAnalyzedResultsCount", 0
+                    ),
+                    "echrDisplayedResultsCount": echr_result.get("echrDisplayedResultsCount", 0),
                 },
             }
 
@@ -528,6 +591,31 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "otherEchrCasesFound": echr_result.get("otherEchrAnalogies", []),
                 "echrAnalogyConfidence": echr_result.get("echrAnalogyConfidence", "low"),
                 "echrErrors": echr_result.get("errors", []),
+                "domesticCaseTopKUsed": domestic_topk.get("domesticCaseTopKUsed", False),
+                "domesticInitialResultsCount": domestic_topk.get("domesticInitialResultsCount", 0),
+                "domesticRerankedResultsCount": domestic_topk.get("domesticRerankedResultsCount", 0),
+                "domesticAnalyzedResultsCount": domestic_topk.get("domesticAnalyzedResultsCount", 0),
+                "domesticDisplayedResultsCount": domestic_topk.get("domesticDisplayedResultsCount", 0),
+                "hudocTopKUsed": bool(echr_result.get("echrCheckPerformed", False)),
+                "serbiaHudocInitialResultsCount": echr_result.get(
+                    "serbiaHudocInitialResultsCount", 0
+                ),
+                "serbiaHudocRerankedResultsCount": echr_result.get(
+                    "serbiaHudocRerankedResultsCount", 0
+                ),
+                "serbiaHudocAnalyzedResultsCount": echr_result.get(
+                    "serbiaHudocAnalyzedResultsCount", 0
+                ),
+                "generalHudocInitialResultsCount": echr_result.get(
+                    "generalHudocInitialResultsCount", 0
+                ),
+                "generalHudocRerankedResultsCount": echr_result.get(
+                    "generalHudocRerankedResultsCount", 0
+                ),
+                "generalHudocAnalyzedResultsCount": echr_result.get(
+                    "generalHudocAnalyzedResultsCount", 0
+                ),
+                "echrDisplayedResultsCount": echr_result.get("echrDisplayedResultsCount", 0),
                 "entityMap": entity_service.build_entity_map(
                     query_entities,
                     regulation_entities,

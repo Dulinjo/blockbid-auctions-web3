@@ -93,6 +93,20 @@ Feature flagovi:
 - `ENABLE_ENTITY_RECOGNITION=true`
 - `ENABLE_ECHR_CHECK=true`
 
+Top-k podešavanja:
+
+- `DOMESTIC_CASE_INITIAL_K=50`
+- `DOMESTIC_CASE_RERANKED_K=10`
+- `DOMESTIC_CASE_ANALYZE_K=3`
+- `MAX_DOMESTIC_CASES_IN_ANSWER=3`
+- `SERBIA_HUDOC_INITIAL_K=20`
+- `SERBIA_HUDOC_RERANKED_K=5`
+- `SERBIA_HUDOC_ANALYZE_K=3`
+- `GENERAL_HUDOC_INITIAL_K=20`
+- `GENERAL_HUDOC_RERANKED_K=5`
+- `GENERAL_HUDOC_ANALYZE_K=3`
+- `MAX_ECHR_CASES_IN_ANSWER=3`
+
 ## Pokretanje lokalno
 
 ```bash
@@ -214,6 +228,7 @@ Ako nisu podešeni, chat radi standardno nad internom bazom odluka.
 ### `case-law-retriever`
 - Koristi postojeći `rag_engine.search_case_law` nad lokalnom bazom.
 - Vraća metadata polja (sud, broj predmeta, skor, razlike).
+- Primenjuje top-k tok: initial -> reranked -> analyze -> display.
 
 ### `echr-checker` (HUDOC / ESLJP)
 - Interne provere prakse Evropskog suda za ljudska prava preko `echr-extractor`.
@@ -221,6 +236,7 @@ Ako nisu podešeni, chat radi standardno nad internom bazom odluka.
   1. prvo pretraga predmeta protiv Srbije,
   2. tek ako nema dovoljno bliske analogije, proširenje na druge države.
 - Mapping korisničke situacije na moguće čl. Konvencije (npr. čl. 6, 8, 10, 14, P1-1).
+- Primenjuje top-k HUDOC tok (initial -> reranked -> analyze -> display) i ograničava broj prikazanih slučajeva.
 - Ako je servis nedostupan, chat nastavlja sa domaćim propisima i domaćom praksom.
 
 ### `norm-analyzer`

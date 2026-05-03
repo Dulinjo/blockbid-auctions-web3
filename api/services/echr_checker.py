@@ -79,6 +79,12 @@ class EchrSearchInput:
     possible_convention_articles: list[str] | None = None
     prefer_serbia_cases: bool = True
     max_results: int = 3
+    serbia_initial_k: int = 20
+    serbia_reranked_k: int = 5
+    serbia_analyze_k: int = 3
+    general_initial_k: int = 20
+    general_reranked_k: int = 5
+    general_analyze_k: int = 3
 
 
 def _normalize_violation(value: Any) -> str:
@@ -193,6 +199,13 @@ class EchrChecker:
             self._echr_available = False
 
     def search_echr_analogies(self, payload: EchrSearchInput) -> dict[str, Any]:
+        serbia_initial_k = max(int(getattr(payload, "serbia_initial_k", 20) or 20), 1)
+        serbia_reranked_k = max(int(getattr(payload, "serbia_reranked_k", 5) or 5), 1)
+        serbia_analyze_k = max(int(getattr(payload, "serbia_analyze_k", 3) or 3), 1)
+        general_initial_k = max(int(getattr(payload, "general_initial_k", 20) or 20), 1)
+        general_reranked_k = max(int(getattr(payload, "general_reranked_k", 5) or 5), 1)
+        general_analyze_k = max(int(getattr(payload, "general_analyze_k", 3) or 3), 1)
+        max_cases_in_answer = max(int(getattr(payload, "max_results", 3) or 3), 1)
         base_result = {
             "echrCheckPerformed": False,
             "possibleConventionArticles": [],
@@ -209,6 +222,15 @@ class EchrChecker:
             "hudocQueryGeneral": "",
             "otherEchrCasesFound": [],
             "echrAnalogyConfidence": "low",
+            "topKMetrics": {
+                "serbiaHudocInitialResultsCount": 0,
+                "serbiaHudocRerankedResultsCount": 0,
+                "serbiaHudocAnalyzedResultsCount": 0,
+                "generalHudocInitialResultsCount": 0,
+                "generalHudocRerankedResultsCount": 0,
+                "generalHudocAnalyzedResultsCount": 0,
+                "echrDisplayedResultsCount": 0,
+            },
         }
         if not self.enabled:
             base_result["echrLimitations"] = (
@@ -267,11 +289,25 @@ class EchrChecker:
         base_result["hudocQueryGeneral"] = general_query
 
         try:
-            serbia_rows = self._query_hudoc(serbia_query, limit=max(payload.max_results, 3))
+            serbia_initial_rows = self._query_hudoc(
+                serbia_query,
+                limit=max(serbia_initial_k, payload.max_results, 3),
+            )
             base_result["serbiaSearchPerformed"] = True
-            serbia_cases = [self._format_case_row(row, default_state="Serbia") for row in serbia_rows]
-            serbia_cases.sort(key=lambda item: float(item["relevanceScore"]), reverse=True)
-            base_result["serbiaCasesFound"] = serbia_cases[: payload.max_results]
+            serbia_cases_all = [
+                self._format_case_row(row, default_state="Serbia") for row in serbia_initial_rows
+            ]
+            serbia_cases_reranked = self._rerank_cases(
+                payload.user_question,
+                payload.extracted_facts,
+                article_list,
+                serbia_cases_all,
+                serbia_reranked_k,
+            )
+            serbia_cases_analyzed = serbia_cases_reranked[:serbia_analyze_k]
+            base_result["serbiaCasesFound"] = serbia_cases_analyzed[
+                : min(payload.max_results, max_cases_in_answer)
+            ]
             base_result["serbiaSimilarCaseFound"] = bool(base_result["serbiaCasesFound"])
             base_result["serbiaCondemnedOrViolationFound"] = any(
                 case["violation"] == "violation" for case in base_result["serbiaCasesFound"]
@@ -279,15 +315,45 @@ class EchrChecker:
 
             other_cases: list[dict[str, Any]] = []
             if not base_result["serbiaSimilarCaseFound"]:
-                general_rows = self._query_hudoc(general_query, limit=max(payload.max_results, 3))
-                for row in general_rows:
+                general_initial_rows = self._query_hudoc(
+                    general_query,
+                    limit=max(general_initial_k, payload.max_results, 3),
+                )
+                general_cases_all: list[dict[str, Any]] = []
+                for row in general_initial_rows:
                     case = self._format_case_row(row, default_state="")
                     if case["respondentState"].lower() == "serbia":
                         continue
-                    other_cases.append(case)
-                other_cases.sort(key=lambda item: float(item["relevanceScore"]), reverse=True)
-                base_result["otherEchrAnalogies"] = other_cases[: payload.max_results]
+                    general_cases_all.append(case)
+                other_cases = self._rerank_cases(
+                    payload.user_question,
+                    payload.extracted_facts,
+                    article_list,
+                    general_cases_all,
+                    general_reranked_k,
+                )
+                analyzed_other = other_cases[:general_analyze_k]
+                base_result["otherEchrAnalogies"] = analyzed_other[
+                    : min(payload.max_results, max_cases_in_answer)
+                ]
+            else:
+                general_initial_rows = []
+                other_cases = []
             base_result["otherEchrCasesFound"] = base_result["otherEchrAnalogies"]
+
+            displayed = len(base_result["serbiaCasesFound"]) + len(base_result["otherEchrAnalogies"])
+            base_result["topKMetrics"] = {
+                "serbiaHudocInitialResultsCount": len(serbia_initial_rows),
+                "serbiaHudocRerankedResultsCount": len(serbia_cases_reranked),
+                "serbiaHudocAnalyzedResultsCount": len(serbia_cases_analyzed),
+                "generalHudocInitialResultsCount": len(general_initial_rows),
+                "generalHudocRerankedResultsCount": len(other_cases),
+                "generalHudocAnalyzedResultsCount": min(
+                    len(other_cases),
+                    general_analyze_k,
+                ),
+                "echrDisplayedResultsCount": min(displayed, max_cases_in_answer),
+            }
 
             base_result["echrAnalysis"] = self._build_analysis(base_result)
             base_result["echrLimitations"] = (
@@ -301,6 +367,42 @@ class EchrChecker:
                 "Provera prakse Evropskog suda za ljudska prava trenutno nije dostupna."
             )
             return base_result
+
+    def _rerank_cases(
+        self,
+        user_question: str,
+        extracted_facts: list[str],
+        possible_articles: list[str],
+        cases: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        query = f"{user_question} {' '.join(extracted_facts)}".lower()
+        fact_tokens = [token for token in re.findall(r"[a-zA-ZčćžšđČĆŽŠĐ]{3,}", query)]
+        article_tokens = {token.lower() for token in possible_articles}
+        reranked: list[dict[str, Any]] = []
+        for case in cases:
+            text_blob = " ".join(
+                [
+                    str(case.get("caseTitle", "")),
+                    str(case.get("conclusion", "")),
+                    " ".join(str(item) for item in case.get("articles", [])),
+                    str(case.get("respondentState", "")),
+                ]
+            ).lower()
+            overlap = sum(1 for token in fact_tokens if token in text_blob)
+            score = float(case.get("relevanceScore", 0.0))
+            score += min(overlap / 20.0, 0.25)
+            case_articles = {str(item).lower() for item in case.get("articles", [])}
+            if article_tokens and case_articles.intersection(article_tokens):
+                score += 0.15
+            if str(case.get("respondentState", "")).lower() == "serbia":
+                score += 0.1
+            if case.get("violation") == "violation":
+                score += 0.05
+            case["relevanceScore"] = round(min(score, 1.0), 3)
+            reranked.append(case)
+        reranked.sort(key=lambda item: float(item.get("relevanceScore", 0.0)), reverse=True)
+        return reranked[: max(top_k, 1)]
 
     def _query_hudoc(self, query_payload: str, limit: int) -> list[dict[str, Any]]:
         assert self._get_echr is not None
@@ -399,6 +501,12 @@ def search_echr_analogies(payload: dict[str, Any]) -> dict[str, Any]:
         ],
         prefer_serbia_cases=bool(payload.get("preferSerbiaCases", True)),
         max_results=max(int(payload.get("maxResults", 3) or 3), 1),
+        serbia_initial_k=max(int(payload.get("serbiaInitialK", 20) or 20), 1),
+        serbia_reranked_k=max(int(payload.get("serbiaRerankedK", 5) or 5), 1),
+        serbia_analyze_k=max(int(payload.get("serbiaAnalyzeK", 3) or 3), 1),
+        general_initial_k=max(int(payload.get("generalInitialK", 20) or 20), 1),
+        general_reranked_k=max(int(payload.get("generalRerankedK", 5) or 5), 1),
+        general_analyze_k=max(int(payload.get("generalAnalyzeK", 3) or 3), 1),
     )
     result = echr_checker.search_echr_analogies(prepared)
     triggered_by = str(payload.get("triggeredBy", "")).strip()

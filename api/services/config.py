@@ -25,6 +25,32 @@ class FeatureFlags:
     enable_echr_check: bool
 
 
+@dataclass(slots=True)
+class RetrievalLimits:
+    domestic_case_initial_k: int
+    domestic_case_reranked_k: int
+    domestic_case_analyze_k: int
+    max_domestic_cases_in_answer: int
+    serbia_hudoc_initial_k: int
+    serbia_hudoc_reranked_k: int
+    serbia_hudoc_analyze_k: int
+    general_hudoc_initial_k: int
+    general_hudoc_reranked_k: int
+    general_hudoc_analyze_k: int
+    max_echr_cases_in_answer: int
+
+
+def _as_int(name: str, default: int, minimum: int = 1, maximum: int = 500) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
 def get_feature_flags() -> FeatureFlags:
     return FeatureFlags(
         enable_legal_intake_agent=_as_bool("ENABLE_LEGAL_INTAKE_AGENT", True),
@@ -38,6 +64,32 @@ def get_feature_flags() -> FeatureFlags:
         enable_entity_recognition=_as_bool("ENABLE_ENTITY_RECOGNITION", True),
         enable_echr_check=_as_bool("ENABLE_ECHR_CHECK", True),
     )
+
+
+def get_retrieval_limits() -> RetrievalLimits:
+    return RetrievalLimits(
+        domestic_case_initial_k=_as_int("DOMESTIC_CASE_INITIAL_K", 50),
+        domestic_case_reranked_k=_as_int("DOMESTIC_CASE_RERANKED_K", 10),
+        domestic_case_analyze_k=_as_int("DOMESTIC_CASE_ANALYZE_K", 3),
+        max_domestic_cases_in_answer=_as_int("MAX_DOMESTIC_CASES_IN_ANSWER", 3),
+        serbia_hudoc_initial_k=_as_int("SERBIA_HUDOC_INITIAL_K", 20),
+        serbia_hudoc_reranked_k=_as_int("SERBIA_HUDOC_RERANKED_K", 5),
+        serbia_hudoc_analyze_k=_as_int("SERBIA_HUDOC_ANALYZE_K", 3),
+        general_hudoc_initial_k=_as_int("GENERAL_HUDOC_INITIAL_K", 20),
+        general_hudoc_reranked_k=_as_int("GENERAL_HUDOC_RERANKED_K", 5),
+        general_hudoc_analyze_k=_as_int("GENERAL_HUDOC_ANALYZE_K", 3),
+        max_echr_cases_in_answer=_as_int("MAX_ECHR_CASES_IN_ANSWER", 3),
+    )
+
+
+KConfig = RetrievalLimits
+
+
+def get_topk_config() -> RetrievalLimits:
+    return get_retrieval_limits()
+
+
+DEFAULT_K_CONFIG = get_retrieval_limits()
 
 
 def feature_enabled(name: str, default: bool = False) -> bool:
