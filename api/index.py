@@ -19,7 +19,6 @@ from api.core.rag import rag_engine
 from api.services.case_law_retriever import CaseLawRetriever
 from api.services.config import get_feature_flags, get_retrieval_limits
 from api.services.echr_checker import search_echr_analogies
-from api.services.e_services_guide import e_services_guide
 from api.services.entity_recognition_and_linking import entity_service
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
