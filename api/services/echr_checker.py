@@ -50,7 +50,15 @@ ARTICLE_RULES: list[tuple[str, str, tuple[str, ...]]] = [
     (
         "Article 6",
         "pravo na pravično suđenje",
-        ("suđenje", "sudjenje", "razumnom roku", "duzina postupka", "izvrsenje presude"),
+        (
+            "suđenje",
+            "sudjenje",
+            "razumnom roku",
+            "duzina postupka",
+            "dugo trajanje postupka",
+            "postupak traje",
+            "izvrsenje presude",
+        ),
     ),
     ("Article 8", "privatni i porodični život", ("privatnost", "nadzor", "telefon", "poruke", "dom")),
     ("Article 9", "sloboda misli i veroispovesti", ("veroispovest", "religija", "savest")),
