@@ -49,3 +49,22 @@ def test_survey_endpoint_is_non_blocking() -> None:
     payload = response.json()
     assert payload["status"] == "ok"
     assert "saved" in payload
+
+
+def test_chat_regulation_lookup_does_not_fall_back_to_empty_rag(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    monkeypatch.delenv("SLUZBENI_GLASNIK_API_URL", raising=False)
+
+    response = client.post(
+        "/api/chat",
+        json={"query": "Kojim propisima je regulisan ugovor o radu?"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert "Baza dokumenata trenutno nije indeksirana" not in payload["answer"]
+    structured = payload.get("structured", {})
+    assert structured.get("intent") in {
+        "REGULATION_LOOKUP",
+        "LEGAL_SITUATION_ANALYSIS",
+        "COMBINED_REGULATION_AND_CASE_LAW",
+    }

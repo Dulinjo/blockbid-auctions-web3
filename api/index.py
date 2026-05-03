@@ -19,6 +19,7 @@ from api.core.rag import rag_engine
 from api.services.case_law_retriever import CaseLawRetriever
 from api.services.config import get_feature_flags, get_retrieval_limits
 from api.services.echr_checker import search_echr_analogies
+from api.services.e_services_guide import search_e_services_guide
 from api.services.entity_recognition_and_linking import entity_service
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
@@ -125,11 +126,13 @@ def _format_eservice_section(recommendations: list[dict]) -> str:
     for item in recommendations[:2]:
         name = str(item.get("serviceName") or "Servis")
         institution = str(item.get("institution") or "Nadležna institucija")
-        url = str(item.get("serviceUrl") or "").strip()
-        instruction = str(item.get("readyInstruction") or "").strip()
-        prep = str(item.get("prepareBefore") or "").strip()
-        eid = str(item.get("needsEid") or "nije poznato")
-        fee = str(item.get("possibleFeeInfo") or "nije navedeno")
+        url = str(item.get("serviceUrl") or item.get("url") or "").strip()
+        instruction = str(
+            item.get("readyInstruction") or item.get("readyToUseInstructionCopy") or ""
+        ).strip()
+        prep = str(item.get("prepareBefore") or item.get("whatUserCanPrepare") or "").strip()
+        eid = str(item.get("needsEid") or item.get("needs_eid") or "nije poznato")
+        fee = str(item.get("possibleFeeInfo") or item.get("possible_fee_info") or "nije navedeno")
         lines.append(f"- {name} ({institution})")
         if instruction:
             lines.append(f"  - Šta možete uraditi: {instruction}")
@@ -138,6 +141,29 @@ def _format_eservice_section(recommendations: list[dict]) -> str:
         lines.append(f"  - eID: {eid}; taksa: {fee}")
         if url:
             lines.append(f"  - Link: {url}")
+    return "\n".join(lines)
+
+
+def _format_contact_section(contacts: list[dict]) -> str:
+    if not contacts:
+        return ""
+    lines: list[str] = ["Kome možete da se obratite:"]
+    for row in contacts[:2]:
+        org_name = str(row.get("orgName") or row.get("institution") or "Kontakt")
+        contact_type = str(row.get("contactType") or "kontakt")
+        contact_value = str(
+            row.get("phone")
+            or row.get("email")
+            or row.get("portalUrl")
+            or row.get("fallbackIfUnreachable")
+            or ""
+        ).strip()
+        script = str(row.get("scriptForAgentCopy") or "").strip()
+        lines.append(f"- {org_name} ({contact_type})")
+        if contact_value:
+            lines.append(f"  - Kontakt: {contact_value}")
+        if script:
+            lines.append(f"  - Napomena: {script}")
     return "\n".join(lines)
 
 
@@ -298,6 +324,14 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     regulation_entities: list[dict] = []
     case_rows: list[dict] = []
     case_entities: list[dict] = []
+    e_services_rows: list[dict] = []
+    e_services_contacts: list[dict] = []
+    e_services_envelope_clues: list[dict] = []
+    e_services_topk = {
+        "eServicesInitialResultsCount": 0,
+        "eServicesRerankedResultsCount": 0,
+        "eServicesDisplayedResultsCount": 0,
+    }
     echr_result: dict = {
         "echrCheckPerformed": False,
         "possibleConventionArticles": [],
@@ -325,6 +359,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     cache_hit = False
     used_pis_fetch = False
     errors: list[str] = []
+    fallbacks_used: list[str] = []
 
     try:
         should_use_regulation = bool(intake.needs_regulation_lookup)
@@ -459,6 +494,31 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 for case in case_rows
             )
 
+        should_use_e_services = bool(
+            flags.enable_e_services_guide
+            and (intake.needs_e_services_guidance or intake.needs_envelope_clue_analysis)
+        )
+        if should_use_e_services:
+            e_services_result = search_e_services_guide(
+                {
+                    "userQuestion": payload.query,
+                    "detectedIntent": intake.intent,
+                    "legalArea": intake.legal_area,
+                    "extractedEntities": query_entities,
+                    "eServiceIntent": intake.e_service_intent,
+                    "topK": 10,
+                }
+            )
+            maybe_services = e_services_result.get("services", [])
+            maybe_contacts = e_services_result.get("contacts", [])
+            maybe_envelope = e_services_result.get("envelopeClues", [])
+            e_services_rows = maybe_services if isinstance(maybe_services, list) else []
+            e_services_contacts = maybe_contacts if isinstance(maybe_contacts, list) else []
+            e_services_envelope_clues = maybe_envelope if isinstance(maybe_envelope, list) else []
+            topk_metrics = e_services_result.get("topKMetrics", {})
+            if isinstance(topk_metrics, dict):
+                e_services_topk.update(topk_metrics)
+
         echr_should_run = bool(intake.needs_echr_check)
         if echr_should_run:
             echr_result = search_echr_analogies(
@@ -509,10 +569,26 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             },
         )
 
-        if not regulation_rows and not case_rows:
+        legal_intent = intake.intent in {
+            INTENT_LEGAL_SITUATION_ANALYSIS,
+            INTENT_REGULATION_LOOKUP,
+            INTENT_CASE_LAW_SEARCH,
+            INTENT_COMBINED,
+        }
+        should_skip_generic_rag_fallback = (
+            legal_intent or should_use_regulation or should_use_case_law or should_use_e_services
+        )
+
+        if (
+            not regulation_rows
+            and not case_rows
+            and not e_services_rows
+            and not should_skip_generic_rag_fallback
+        ):
             fallback = rag_engine.answer(query_for_retrieval)
             answer = fallback["answer"]
             citations = fallback.get("citations", [])
+            fallbacks_used.append("rag-engine-answer")
             structured = {
                 "intent": intake.intent,
                 "intake": intake.to_json(),
@@ -523,11 +599,46 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 user_summary=intake.user_situation_summary,
                 regulation_rows=regulation_rows,
                 case_rows=case_rows,
+                e_services_rows=e_services_rows,
             )
+            answer_parts = [
+                analysis.short_answer,
+                analysis.analysis,
+            ]
+            if should_use_case_law and not case_rows:
+                fallbacks_used.append("continued-without-case-law")
+                answer_parts.append(
+                    "Nisam pronašao dovoljno relevantnu sudsku praksu u dostupnoj lokalnoj bazi, "
+                    "ali mogu da vas usmerim kroz relevantan propis, moguće praktične korake i dostupne e-servise."
+                )
+            if should_use_regulation and not regulation_rows:
+                fallbacks_used.append("pis-lookup-unavailable-or-empty")
+                answer_parts.append(
+                    "Relevantan propis trenutno nije potvrđen iz PIS izvora. "
+                    "Ako želite, mogu da pokušam uži upit po tačnom nazivu propisa ili članu."
+                )
+                if intake.possible_regulations:
+                    suggested = ", ".join(intake.possible_regulations[:3])
+                    answer_parts.append(
+                        f"Mogući relevantni propisi za proveru: {suggested} (nije potvrđeno iz PIS izvora)."
+                    )
+            if intake.needs_envelope_clue_analysis and not e_services_rows:
+                answer_parts.append(
+                    "Da bih vas precizno usmerio, pošaljite samo podatke koji su vidljivi na dopisu/koverti: "
+                    "1) koji organ piše, 2) da li postoji broj predmeta/Posl. br./Broj, "
+                    "3) tip akta (poziv, rešenje, presuda, obaveštenje)."
+                )
+            e_services_section = _format_eservice_section(e_services_rows)
+            if e_services_section:
+                answer_parts.append(e_services_section)
+            contacts_section = _format_contact_section(e_services_contacts)
+            if contacts_section:
+                answer_parts.append(contacts_section)
             disclaimer = (
-                "Odgovor je informativan i ne predstavlja zamenu za pravni savet advokata."
+                "Odgovor je informativan i ne predstavlja pravni savet."
             )
-            answer = f"{analysis.short_answer}\n\n{analysis.analysis}\n\n{disclaimer}"
+            answer = "\n\n".join(part for part in answer_parts if part)
+            answer = f"{answer}\n\n{disclaimer}"
             echr_section = ""
             if echr_result.get("echrCheckPerformed"):
                 if echr_result.get("serbiaSimilarCaseFound") and echr_result.get(
@@ -573,9 +684,16 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             structured = {
                 "intent": intake.intent,
                 "intake": intake.to_json(),
+                "continuedWithoutCaseLaw": bool(should_use_case_law and not case_rows),
                 "shortAnswer": analysis.short_answer,
                 "relevantRegulations": analysis.regulation_rows,
                 "similarCases": analysis.case_rows,
+                "eServices": {
+                    "recommendedServices": e_services_rows,
+                    "recommendedContacts": e_services_contacts,
+                    "envelopeClues": e_services_envelope_clues,
+                    "topKMetrics": e_services_topk,
+                },
                 "analysis": analysis.analysis,
                 "limitations": analysis.limitations,
                 "echrCheck": {
@@ -596,6 +714,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 },
                 "topK": {
                     **domestic_topk,
+                    **e_services_topk,
                     "hudocTopKUsed": bool(echr_result.get("echrCheckPerformed", False)),
                     "serbiaHudocInitialResultsCount": echr_result.get(
                         "serbiaHudocInitialResultsCount", 0
@@ -627,16 +746,31 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "detectedIntent": intake.intent,
                 "confidenceScore": intake.confidence_score,
                 "legalArea": intake.legal_area,
+                "needsRegulationLookup": bool(intake.needs_regulation_lookup),
+                "needsCaseLawSearch": bool(intake.needs_case_law_search),
+                "needsEServicesGuidance": bool(intake.needs_e_services_guidance),
                 "openAiIntakeResponse": openai_response,
                 "whetherClarificationAsked": False,
+                "pisLookupAttempted": bool(should_use_regulation),
+                "pisLookupSuccess": bool(regulation_rows),
                 "usedRegulationLookup": bool(regulation_rows),
+                "caseLawSearchAttempted": bool(should_use_case_law),
                 "usedCaseLawSearch": bool(case_rows),
+                "caseLawResultsFound": len(case_rows),
                 "usedPISFetch": used_pis_fetch,
                 "cacheHit": cache_hit,
                 "usedLegalActParser": flags.enable_legal_act_parser,
                 "usedTemporalValidityChecker": flags.enable_temporal_validity_check,
                 "retrievedRegulations": regulation_rows,
                 "retrievedCases": case_rows,
+                "continuedWithoutCaseLaw": bool(should_use_case_law and not case_rows),
+                "eServicesGuidanceUsed": bool(e_services_rows),
+                "recommendedServiceIds": [
+                    row.get("serviceId")
+                    for row in e_services_rows
+                    if isinstance(row, dict) and row.get("serviceId")
+                ],
+                "fallbacksUsed": fallbacks_used,
                 "finalAnswer": answer,
                 "modelUsed": "gpt-4o-mini",
                 "latencyMs": int((time.perf_counter() - started) * 1000),
@@ -660,6 +794,15 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "domesticRerankedResultsCount": domestic_topk.get("domesticRerankedResultsCount", 0),
                 "domesticAnalyzedResultsCount": domestic_topk.get("domesticAnalyzedResultsCount", 0),
                 "domesticDisplayedResultsCount": domestic_topk.get("domesticDisplayedResultsCount", 0),
+                "eServicesInitialResultsCount": e_services_topk.get(
+                    "eServicesInitialResultsCount", 0
+                ),
+                "eServicesRerankedResultsCount": e_services_topk.get(
+                    "eServicesRerankedResultsCount", 0
+                ),
+                "eServicesDisplayedResultsCount": e_services_topk.get(
+                    "eServicesDisplayedResultsCount", 0
+                ),
                 "hudocTopKUsed": bool(echr_result.get("echrCheckPerformed", False)),
                 "serbiaHudocInitialResultsCount": echr_result.get(
                     "serbiaHudocInitialResultsCount", 0
