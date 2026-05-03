@@ -10,3 +10,4 @@ python-docx
 odfpy
 pytest
 httpx
+echr-extractor

@@ -91,6 +91,7 @@ Feature flagovi:
 - `ENABLE_RESEARCH_LOGGING=true`
 - `ENABLE_POST_ANSWER_SURVEY=true`
 - `ENABLE_ENTITY_RECOGNITION=true`
+- `ENABLE_ECHR_CHECK=true`
 
 ## Pokretanje lokalno
 
@@ -214,6 +215,14 @@ Ako nisu podešeni, chat radi standardno nad internom bazom odluka.
 - Koristi postojeći `rag_engine.search_case_law` nad lokalnom bazom.
 - Vraća metadata polja (sud, broj predmeta, skor, razlike).
 
+### `echr-checker` (HUDOC / ESLJP)
+- Interne provere prakse Evropskog suda za ljudska prava preko `echr-extractor`.
+- Serbia-first pravilo:
+  1. prvo pretraga predmeta protiv Srbije,
+  2. tek ako nema dovoljno bliske analogije, proširenje na druge države.
+- Mapping korisničke situacije na moguće čl. Konvencije (npr. čl. 6, 8, 10, 14, P1-1).
+- Ako je servis nedostupan, chat nastavlja sa domaćim propisima i domaćom praksom.
+
 ### `norm-analyzer`
 - Spaja norme i praksu u strukturisan izlaz uz ograničenja i disclaimer.
 
@@ -229,6 +238,7 @@ Ako nisu podešeni, chat radi standardno nad internom bazom odluka.
 - **SrpELTeC-gold**: referentni resurs za NER na srpskom (nije pravna baza znanja).
 - **SrpKor4Tagging**: resurs za POS/lematizaciju (integracija je ostavljena kroz proširive interfejse preprocessora).
 - **PIS / pravno-informacioni-sistem.rs**: primarni izvor propisa (on-demand fetch pristup).
+- **HUDOC / ECHR**: dopunski izvor evropske sudske prakse o Konvenciji (Serbia-first analize).
 - **Nebojsa Vasiljević metodologija**: osnova za strukturno parsiranje pravnih tekstova.
 
 ## Napomena o admin zaštiti

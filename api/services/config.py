@@ -22,6 +22,7 @@ class FeatureFlags:
     enable_research_logging: bool
     enable_post_answer_survey: bool
     enable_entity_recognition: bool
+    enable_echr_check: bool
 
 
 def get_feature_flags() -> FeatureFlags:
@@ -35,6 +36,7 @@ def get_feature_flags() -> FeatureFlags:
         enable_research_logging=_as_bool("ENABLE_RESEARCH_LOGGING", True),
         enable_post_answer_survey=_as_bool("ENABLE_POST_ANSWER_SURVEY", True),
         enable_entity_recognition=_as_bool("ENABLE_ENTITY_RECOGNITION", True),
+        enable_echr_check=_as_bool("ENABLE_ECHR_CHECK", True),
     )
 
 

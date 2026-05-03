@@ -18,9 +18,11 @@ from api.core.processor import (
 from api.core.rag import rag_engine
 from api.services.case_law_retriever import CaseLawRetriever
 from api.services.config import get_feature_flags
+from api.services.echr_checker import search_echr_analogies
 from api.services.entity_recognition_and_linking import entity_service
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
+    INTENT_LEGAL_SITUATION_ANALYSIS,
     INTENT_CASE_LAW_SEARCH,
     INTENT_CLARIFICATION_NEEDED,
     INTENT_COMBINED,
@@ -230,6 +232,22 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     regulation_entities: list[dict] = []
     case_rows: list[dict] = []
     case_entities: list[dict] = []
+    echr_result: dict = {
+        "echrCheckPerformed": False,
+        "possibleConventionArticles": [],
+        "serbiaSearchPerformed": False,
+        "serbiaSimilarCaseFound": False,
+        "serbiaCondemnedOrViolationFound": False,
+        "serbiaCasesFound": [],
+        "otherEchrAnalogies": [],
+        "echrAnalysis": "",
+        "echrLimitations": "",
+        "errors": [],
+        "echrTriggeredBy": "",
+        "hudocQuerySerbia": "",
+        "hudocQueryGeneral": "",
+        "echrAnalogyConfidence": "low",
+    }
     citations: list[dict] = []
     cache_hit = False
     used_pis_fetch = False
@@ -363,6 +381,41 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 for case in case_rows
             )
 
+        echr_should_run = intake.intent in {
+            INTENT_LEGAL_SITUATION_ANALYSIS,
+            INTENT_CASE_LAW_SEARCH,
+            INTENT_COMBINED,
+        }
+        if echr_should_run:
+            echr_result = search_echr_analogies(
+                {
+                    "userQuestion": payload.query,
+                    "extractedFacts": intake.detected_facts,
+                    "possibleConventionArticles": [],
+                    "preferSerbiaCases": True,
+                    "maxResults": 3,
+                    "triggeredBy": (
+                        "explicit_user_request"
+                        if any(
+                            token in payload.query.lower()
+                            for token in (
+                                "echr",
+                                "esljp",
+                                "hudoc",
+                                "strasbourg",
+                                "evropski sud za ljudska prava",
+                                "evropska konvencija",
+                            )
+                        )
+                        else "legal_situation"
+                        if intake.intent == INTENT_LEGAL_SITUATION_ANALYSIS
+                        else "case_law_search"
+                        if intake.intent == INTENT_CASE_LAW_SEARCH
+                        else "combined_answer"
+                    ),
+                }
+            )
+
         if not regulation_rows and not case_rows:
             fallback = rag_engine.answer(query_for_retrieval)
             answer = fallback["answer"]
@@ -382,6 +435,38 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "Odgovor je informativan i ne predstavlja zamenu za pravni savet advokata."
             )
             answer = f"{analysis.short_answer}\n\n{analysis.analysis}\n\n{disclaimer}"
+            echr_section = ""
+            if echr_result.get("echrCheckPerformed"):
+                if echr_result.get("serbiaSimilarCaseFound") and echr_result.get(
+                    "serbiaCondemnedOrViolationFound"
+                ):
+                    echr_section = (
+                        "\n\nProvera prakse Evropskog suda za ljudska prava:\n"
+                        "U HUDOC praksi postoji predmet protiv Srbije koji može biti relevantna analogija "
+                        "i u njemu je utvrđena povreda Konvencije. Potrebno je detaljno uporediti činjenice.\n"
+                    )
+                elif echr_result.get("serbiaSimilarCaseFound"):
+                    echr_section = (
+                        "\n\nProvera prakse Evropskog suda za ljudska prava:\n"
+                        "Postoji predmet protiv Srbije sa delimičnom sličnošću, ali ishod nije nužno povreda "
+                        "Konvencije. Potrebno je pažljivo uporediti činjenični okvir.\n"
+                    )
+                elif echr_result.get("otherEchrAnalogies"):
+                    echr_section = (
+                        "\n\nProvera prakse Evropskog suda za ljudska prava:\n"
+                        "Nisam našao dovoljno blizak predmet protiv Srbije, ali postoje relevantni evropski "
+                        "standardi iz predmeta protiv drugih država.\n"
+                    )
+                else:
+                    echr_section = (
+                        "\n\nProvera prakse Evropskog suda za ljudska prava:\n"
+                        "Na osnovu dostupne HUDOC pretrage nisam pronašao dovoljno pouzdanu analognu praksu.\n"
+                    )
+            if echr_result.get("errors") and echr_should_run:
+                echr_section = (
+                    "\n\nProvera prakse Evropskog suda za ljudska prava trenutno nije dostupna.\n"
+                )
+            answer = f"{answer}{echr_section}"
             structured = {
                 "intent": intake.intent,
                 "intake": intake.to_json(),
@@ -390,6 +475,22 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "similarCases": analysis.case_rows,
                 "analysis": analysis.analysis,
                 "limitations": analysis.limitations,
+                "echrCheck": {
+                    "echrCheckPerformed": echr_result.get("echrCheckPerformed", False),
+                    "possibleConventionArticles": echr_result.get(
+                        "possibleConventionArticles", []
+                    ),
+                    "serbiaSearchPerformed": echr_result.get("serbiaSearchPerformed", False),
+                    "serbiaSimilarCaseFound": echr_result.get("serbiaSimilarCaseFound", False),
+                    "serbiaCondemnedOrViolationFound": echr_result.get(
+                        "serbiaCondemnedOrViolationFound", False
+                    ),
+                    "serbiaCasesFound": echr_result.get("serbiaCasesFound", []),
+                    "otherEchrAnalogies": echr_result.get("otherEchrAnalogies", []),
+                    "echrAnalysis": echr_result.get("echrAnalysis", ""),
+                    "echrLimitations": echr_result.get("echrLimitations", ""),
+                    "errors": echr_result.get("errors", []),
+                },
             }
 
         interaction_id = interaction_logger.log(
@@ -413,6 +514,20 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "modelUsed": "gpt-4o-mini",
                 "latencyMs": int((time.perf_counter() - started) * 1000),
                 "errors": errors,
+                "echrCheckPerformed": echr_result.get("echrCheckPerformed", False),
+                "echrTriggeredBy": echr_result.get("echrTriggeredBy", ""),
+                "possibleConventionArticles": echr_result.get("possibleConventionArticles", []),
+                "serbiaSearchPerformed": echr_result.get("serbiaSearchPerformed", False),
+                "serbiaSimilarCaseFound": echr_result.get("serbiaSimilarCaseFound", False),
+                "serbiaCondemnedOrViolationFound": echr_result.get(
+                    "serbiaCondemnedOrViolationFound", False
+                ),
+                "hudocQuerySerbia": echr_result.get("hudocQuerySerbia", ""),
+                "hudocQueryGeneral": echr_result.get("hudocQueryGeneral", ""),
+                "serbiaCasesFound": echr_result.get("serbiaCasesFound", []),
+                "otherEchrCasesFound": echr_result.get("otherEchrAnalogies", []),
+                "echrAnalogyConfidence": echr_result.get("echrAnalogyConfidence", "low"),
+                "echrErrors": echr_result.get("errors", []),
                 "entityMap": entity_service.build_entity_map(
                     query_entities,
                     regulation_entities,

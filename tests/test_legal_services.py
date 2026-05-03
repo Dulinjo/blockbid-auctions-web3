@@ -4,6 +4,8 @@ from importlib import reload
 
 from api.services.entity_recognition_and_linking import build_entity_map, extract_entities
 import api.services.entity_recognition_and_linking as entity_module
+import api.services.echr_checker as echr_module
+from api.services.echr_checker import search_echr_analogies
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
     INTENT_CASE_LAW_SEARCH,
@@ -129,3 +131,54 @@ def test_entity_recognition_disabled_fallback(monkeypatch) -> None:
     reloaded = reload(entity_module)
     entities = reloaded.extract_entities("Zakon o radu član 5", source="user_query")
     assert entities == []
+
+
+def test_echr_checker_fallback_when_library_unavailable(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_ECHR_CHECK", "true")
+    result = search_echr_analogies(
+        {
+            "userQuestion": "Da li mi je povređeno pravo na suđenje u razumnom roku?",
+            "extractedFacts": ["postupak traje 9 godina", "državni organ nije reagovao"],
+            "possibleConventionArticles": ["Article 6"],
+            "preferSerbiaCases": True,
+            "maxResults": 2,
+            "triggeredBy": "explicit_user_request",
+        }
+    )
+    assert "echrCheckPerformed" in result
+    assert "serbiaSearchPerformed" in result
+    assert "echrLimitations" in result
+    assert "errors" in result
+
+
+def test_echr_mapping_detects_article6_for_length_of_proceedings() -> None:
+    result = search_echr_analogies(
+        {
+            "userQuestion": "Postupak traje 8 godina i nemam delotvorni pravni lek.",
+            "extractedFacts": ["dugo trajanje postupka", "nema pravnog leka"],
+            "possibleConventionArticles": [],
+            "preferSerbiaCases": True,
+            "maxResults": 2,
+            "triggeredBy": "legal_situation",
+        }
+    )
+    article_ids = [item.get("article") for item in result.get("possibleConventionArticles", [])]
+    assert "Article 6" in article_ids
+    assert "Article 13" in article_ids
+
+
+def test_echr_search_fallback_when_feature_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_ECHR_CHECK", "false")
+    reloaded = reload(echr_module)
+    result = reloaded.search_echr_analogies(
+        {
+            "userQuestion": "Da li je povređeno pravo na suđenje u razumnom roku?",
+            "extractedFacts": ["postupak traje 7 godina"],
+            "possibleConventionArticles": [],
+            "preferSerbiaCases": True,
+            "maxResults": 3,
+            "triggeredBy": "explicit_user_request",
+        }
+    )
+    assert result["echrCheckPerformed"] is False
+    assert "isključena" in result["echrLimitations"]
