@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UploadCloud, RefreshCcw, FileText, CheckCircle2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,27 @@ type ReindexResult = {
   files_processed: number;
 };
 
+type SurveySummary = {
+  total_responses: number;
+  likert_averages: Record<string, number | null>;
+  dimension_averages: Record<string, number | null>;
+  distributions: Record<string, Record<string, number>>;
+  most_common_error_types: Array<{ error_type: string; count: number }>;
+  recent_open_feedback: Array<{
+    id: string;
+    timestamp: string;
+    q38_most_useful_part: string;
+    q39_improvement_suggestion: string;
+    q40_missing_information: string;
+  }>;
+};
+
+type SurveyAdminPayload = {
+  total_count: number;
+  summary: SurveySummary;
+  responses: Array<Record<string, unknown>>;
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
@@ -32,9 +53,32 @@ export default function AdminPage() {
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
   const [uploadFailures, setUploadFailures] = useState<UploadFailure[]>([]);
   const [reindexResult, setReindexResult] = useState<ReindexResult | null>(null);
+  const [surveyData, setSurveyData] = useState<SurveyAdminPayload | null>(null);
+  const [loadingSurveys, setLoadingSurveys] = useState(false);
+  const [selectedSurvey, setSelectedSurvey] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canUpload = files.length > 0 && !uploading;
+
+  const loadSurveys = async () => {
+    setLoadingSurveys(true);
+    try {
+      const response = await fetch("/api/admin/surveys");
+      if (!response.ok) {
+        throw new Error("Neuspešno učitavanje rezultata ankete.");
+      }
+      const payload = (await response.json()) as SurveyAdminPayload;
+      setSurveyData(payload);
+    } catch (surveyError) {
+      setError(surveyError instanceof Error ? surveyError.message : "Greška pri učitavanju anketa.");
+    } finally {
+      setLoadingSurveys(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSurveys();
+  }, []);
 
   const logout = async () => {
     await fetch("/admin/logout/api", { method: "POST" });
@@ -206,6 +250,98 @@ export default function AdminPage() {
             </div>
           ) : null}
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        </CardContent>
+      </Card>
+
+      <Card className="border-white/20 bg-slate-900/70 backdrop-blur-md">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-slate-100">Rezultati ankete</CardTitle>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={loadSurveys} disabled={loadingSurveys}>
+              {loadingSurveys ? "Učitavanje..." : "Osveži"}
+            </Button>
+            <a href="/api/admin/surveys.csv" className="inline-flex">
+              <Button variant="outline">Preuzmi CSV</Button>
+            </a>
+            <a href="/api/admin/surveys.json" className="inline-flex">
+              <Button variant="outline">Preuzmi JSON</Button>
+            </a>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-slate-200">
+            Ukupno podnetih anketa:{" "}
+            <span className="font-semibold">{surveyData?.total_count ?? 0}</span>
+          </p>
+          {surveyData?.summary ? (
+            <div className="grid gap-2 md:grid-cols-2">
+              {Object.entries(surveyData.summary.dimension_averages).map(([key, value]) => (
+                <div key={key} className="rounded-md border border-white/10 bg-slate-800/60 p-2 text-xs text-slate-200">
+                  <span className="font-semibold">{key}:</span>{" "}
+                  {value === null ? "n/a" : value.toFixed(2)}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {surveyData?.responses?.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-200">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="px-2 py-1">ID</th>
+                    <th className="px-2 py-1">Vreme</th>
+                    <th className="px-2 py-1">Uloga</th>
+                    <th className="px-2 py-1">Q31</th>
+                    <th className="px-2 py-1">Q32</th>
+                    <th className="px-2 py-1">Akcija</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {surveyData.responses.slice(0, 40).map((row) => (
+                    <tr key={String(row.id ?? Math.random())} className="border-b border-white/5">
+                      <td className="px-2 py-1">{String(row.id ?? "")}</td>
+                      <td className="px-2 py-1">{String(row.timestamp ?? "")}</td>
+                      <td className="px-2 py-1">{String(row.q01_professional_role ?? "")}</td>
+                      <td className="px-2 py-1">{String(row.q31_overall_satisfaction ?? "")}</td>
+                      <td className="px-2 py-1">{String(row.q32_met_expectations ?? "")}</td>
+                      <td className="px-2 py-1">
+                        <Button variant="outline" onClick={() => setSelectedSurvey(row)}>
+                          Detalji
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">Još nema podnetih anketa.</p>
+          )}
+          {surveyData?.summary?.recent_open_feedback?.length ? (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-100">Skorašnji komentari</h3>
+              {surveyData.summary.recent_open_feedback.slice(0, 8).map((item) => (
+                <div key={item.id} className="rounded-md border border-white/10 bg-slate-800/50 p-2 text-xs text-slate-200">
+                  <p><span className="font-semibold">Najkorisnije:</span> {item.q38_most_useful_part || "—"}</p>
+                  <p><span className="font-semibold">Unapređenje:</span> {item.q39_improvement_suggestion || "—"}</p>
+                  <p><span className="font-semibold">Nedostaje:</span> {item.q40_missing_information || "—"}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {selectedSurvey ? (
+            <div className="rounded-md border border-cyan-400/30 bg-cyan-900/20 p-3 text-xs text-cyan-100">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="font-semibold">Detalji odgovora</p>
+                <Button variant="outline" onClick={() => setSelectedSurvey(null)}>
+                  Zatvori
+                </Button>
+              </div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap">
+                {JSON.stringify(selectedSurvey, null, 2)}
+              </pre>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </main>

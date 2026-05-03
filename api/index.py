@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
+import os
 import time
+from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field, ValidationError
 
 from api.core.processor import (
     DocumentProcessingError,
@@ -34,9 +37,27 @@ from api.services.legal_intake_agent import (
 )
 from api.services.norm_analyzer import NormAnalyzer
 from api.services.pis_on_demand_fetcher import PisOnDemandFetcher
-from api.services.post_answer_survey import save_post_answer_survey
 from api.services.query_preprocessor import preprocess_query
 from api.services.research_interaction_logger import interaction_logger
+from api.services.research_usage_and_surveys import (
+    RATE_LIMIT_MESSAGE,
+    SESSION_COOKIE_NAME,
+    SURVEY_DISCLAIMER,
+    SURVEY_INTRO,
+    SURVEY_SUCCESS_MESSAGE,
+    SURVEY_TITLE,
+    SurveySubmissionRequest,
+    build_survey_csv,
+    build_survey_record,
+    calculate_survey_summary,
+    consume_question_quota,
+    create_session_id,
+    get_usage_snapshot,
+    load_survey_records,
+    save_survey_record,
+    unlock_questions_after_survey,
+    update_latest_chat_context,
+)
 from api.services.temporal_validity_checker import TemporalValidityChecker
 
 app = FastAPI(title="LexVibe API", version="1.0.0")
@@ -86,14 +107,6 @@ class ChatRequest(BaseModel):
     sessionId: str | None = None
 
 
-class MiniFeedbackRequest(BaseModel):
-    interactionId: str
-    sessionId: str
-    helpfulness: str
-    problemTypes: list[str] = Field(default_factory=list)
-    freeComment: str = ""
-
-
 class UploadResponse(BaseModel):
     status: str
     filename: str
@@ -119,21 +132,27 @@ class ChatResponse(BaseModel):
     interactionId: str | None = None
     surveyEnabled: bool = False
     researchNotice: str | None = None
-
-
-class SurveyRequest(BaseModel):
-    interactionId: str
-    usefulness: str
-    sourceRelevance: str
-    clarity: str
-    wouldUseAgain: str
-    freeComment: str = ""
+    rate_limited: bool = False
+    survey_required: bool = False
+    questions_remaining: int | None = None
+    sessionId: str | None = None
+    surveyTitle: str | None = None
+    surveyIntro: str | None = None
+    surveyDisclaimer: str | None = None
 
 
 class SurveyResponse(BaseModel):
     status: str
     saved: bool
     surveyId: str | None = None
+    message: str | None = None
+    questions_unlocked: int | None = None
+
+
+class AdminSurveyPayloadResponse(BaseModel):
+    total_count: int
+    summary: dict[str, Any]
+    responses: list[dict[str, Any]]
 
 
 class StatsResponse(BaseModel):
@@ -206,6 +225,44 @@ def _assert_admin_authorized(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Administratorska autentikacija je obavezna.")
 
 
+def _resolve_session_id(request: Request, payload_session_id: str | None) -> tuple[str, bool]:
+    cookie_value = str(request.cookies.get(SESSION_COOKIE_NAME, "")).strip()
+    payload_value = str(payload_session_id or "").strip()
+    if payload_value:
+        return payload_value, cookie_value != payload_value
+    if cookie_value:
+        return cookie_value, False
+    return create_session_id(), True
+
+
+def _set_session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_id,
+        httponly=True,
+        secure=bool(os.getenv("VERCEL")) or os.getenv("NODE_ENV") == "production",
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+
+
+def _build_rate_limited_response(session_id: str) -> ChatResponse:
+    return ChatResponse(
+        answer=RATE_LIMIT_MESSAGE,
+        citations=[],
+        rate_limited=True,
+        survey_required=True,
+        surveyEnabled=True,
+        researchNotice=RESEARCH_NOTICE,
+        questions_remaining=0,
+        sessionId=session_id,
+        surveyTitle=SURVEY_TITLE,
+        surveyIntro=SURVEY_INTRO,
+        surveyDisclaimer=SURVEY_DISCLAIMER,
+    )
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok", "service": "lexvibe-api"}
@@ -217,11 +274,20 @@ async def stats() -> StatsResponse:
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest) -> ChatResponse:
+async def chat(payload: ChatRequest, request: Request) -> Response:
     started = time.perf_counter()
-    session_id = payload.sessionId or str(uuid4())
+    session_id, should_set_cookie = _resolve_session_id(request, payload.sessionId)
     flags = get_feature_flags()
     k_config = get_retrieval_limits()
+    allowed, questions_remaining = consume_question_quota(session_id)
+    if not allowed:
+        limited = _build_rate_limited_response(session_id)
+        response = JSONResponse(content=limited.model_dump())
+        if should_set_cookie:
+            _set_session_cookie(response, session_id)
+        return response
+
+    update_latest_chat_context(session_id, latest_query=payload.query)
 
     preprocessed = preprocess_query(payload.query)
     incoming_query = preprocessed.normalized_query.strip()
@@ -302,14 +368,20 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "caseLawSearchCalled": False,
             },
         )
-        return ChatResponse(
+        chat_response = ChatResponse(
             answer=answer,
             citations=[],
             structured={"intent": intake.intent, "intake": intake.to_json()},
             interactionId=interaction_id,
             surveyEnabled=flags.enable_post_answer_survey,
             researchNotice=RESEARCH_NOTICE,
+            questions_remaining=questions_remaining,
+            sessionId=session_id,
         )
+        response = JSONResponse(content=chat_response.model_dump())
+        if should_set_cookie:
+            _set_session_cookie(response, session_id)
+        return response
 
     if intake.intent == INTENT_OUT_OF_SCOPE and intake.confidence_score >= 0.6:
         answer = (
@@ -351,14 +423,20 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "caseLawSearchCalled": False,
             },
         )
-        return ChatResponse(
+        chat_response = ChatResponse(
             answer=answer,
             citations=[],
             structured={"intent": intake.intent, "intake": intake.to_json()},
             interactionId=interaction_id,
             surveyEnabled=flags.enable_post_answer_survey,
             researchNotice=RESEARCH_NOTICE,
+            questions_remaining=questions_remaining,
+            sessionId=session_id,
         )
+        response = JSONResponse(content=chat_response.model_dump())
+        if should_set_cookie:
+            _set_session_cookie(response, session_id)
+        return response
 
     pis_fetcher = PisOnDemandFetcher()
     legal_parser = LegalActParser()
@@ -924,14 +1002,24 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             }
         )
 
-        return ChatResponse(
+        update_latest_chat_context(session_id, latest_answer=answer)
+        response_payload = ChatResponse(
             answer=answer,
             citations=citations[:8],
             structured=structured,
             interactionId=interaction_id,
             surveyEnabled=flags.enable_post_answer_survey,
             researchNotice=RESEARCH_NOTICE,
+            questions_remaining=questions_remaining,
+            sessionId=session_id,
+            surveyTitle=SURVEY_TITLE,
+            surveyIntro=SURVEY_INTRO,
+            surveyDisclaimer=SURVEY_DISCLAIMER,
         )
+        response = JSONResponse(content=response_payload.model_dump())
+        if should_set_cookie:
+            _set_session_cookie(response, session_id)
+        return response
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -940,26 +1028,76 @@ async def chat(payload: ChatRequest) -> ChatResponse:
 
 
 @app.post("/api/survey", response_model=SurveyResponse)
-async def save_survey(payload: SurveyRequest) -> SurveyResponse:
+async def save_survey(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    session_id, should_set_cookie = _resolve_session_id(request, str(payload.get("sessionId", "")).strip() or None)
     try:
-        result = save_post_answer_survey(
-            {
-                "interactionId": payload.interactionId,
-                "usefulness": payload.usefulness,
-                "sourceRelevance": payload.sourceRelevance,
-                "clarity": payload.clarity,
-                "wouldUseAgain": payload.wouldUseAgain,
-                "freeComment": payload.freeComment,
-            }
-        )
-        return SurveyResponse(
-            status="ok",
-            saved=bool(result.get("saved")),
-            surveyId=result.get("surveyId"),
-        )
-    except Exception:
-        # Survey is optional and must not break chat flow.
-        return SurveyResponse(status="ok", saved=False, surveyId=None)
+        submission = SurveySubmissionRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+    snapshot = get_usage_snapshot(session_id)
+    record = build_survey_record(
+        submission,
+        session_id=session_id,
+        usage_count_at_submission=int(snapshot.get("usage_count_total", 0)),
+        latest_chat_query=str(snapshot.get("latest_chat_query", "")),
+        latest_chat_answer=str(snapshot.get("latest_chat_answer", "")),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    save_survey_record(record)
+    unlocked_remaining = unlock_questions_after_survey(session_id)
+    response_payload = SurveyResponse(
+        status="ok",
+        saved=True,
+        surveyId=str(record.get("id", "")),
+        message=SURVEY_SUCCESS_MESSAGE,
+        questions_unlocked=unlocked_remaining,
+    ).model_dump()
+    response = JSONResponse(content=response_payload)
+    if should_set_cookie:
+        _set_session_cookie(response, session_id)
+    return response
+
+
+@app.get("/api/admin/surveys", response_model=AdminSurveyPayloadResponse)
+async def admin_surveys(request: Request) -> AdminSurveyPayloadResponse:
+    _assert_admin_authorized(request)
+    records = load_survey_records()
+    summary = calculate_survey_summary(records)
+    return AdminSurveyPayloadResponse(
+        total_count=len(records),
+        summary=summary,
+        responses=records,
+    )
+
+
+@app.get("/api/admin/surveys.json")
+async def admin_surveys_json(request: Request) -> JSONResponse:
+    _assert_admin_authorized(request)
+    records = load_survey_records()
+    summary = calculate_survey_summary(records)
+    return JSONResponse(
+        content={
+            "total_count": len(records),
+            "summary": summary,
+            "responses": records,
+        },
+        headers={
+            "Content-Disposition": "attachment; filename=lexvibe-surveys.json",
+        },
+    )
+
+
+@app.get("/api/admin/surveys.csv")
+async def admin_surveys_csv(request: Request) -> PlainTextResponse:
+    _assert_admin_authorized(request)
+    records = load_survey_records()
+    csv_payload = build_survey_csv(records)
+    return PlainTextResponse(
+        content=csv_payload,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=lexvibe-surveys.csv"},
+    )
 
 
 @app.post("/api/upload", response_model=UploadResponse)

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Gavel, Loader2, MessageSquareText } from "lucide-react";
 
 import { ChatInput } from "@/components/ChatInput";
 import { CitationCard, CitationItem } from "@/components/CitationCard";
+import { ResearchSurveyModal } from "@/components/ResearchSurveyModal";
 import { cn } from "@/lib/utils";
 
 type ChatRole = "user" | "assistant";
@@ -22,120 +23,24 @@ type QuickAction = {
   query: string;
 };
 
-type SurveyDraft = {
-  usefulness: "yes" | "partial" | "no";
-  sourceRelevance: "yes" | "partial" | "no" | "not_checked";
-  clarity: "yes" | "partial" | "no";
-  wouldUseAgain: "yes" | "maybe" | "no";
-  freeComment: string;
-};
-
-type FullSurveyDraft = {
-  role: string;
-  yearsExperience: string;
-  worksWithCitizensFrequency: string;
-  digitalSkills: string;
-  gender: string;
-  ageGroup: string;
-  educationLevel: string;
-  educationField: string;
-  institutionType: string;
-  usedAiToolsBefore: string;
-  caseComplexity: string;
-  expectedAnswer: string;
-  likert: Record<string, number | null>;
-  identifiedRightInstitution: string;
-  offeredRelevantContactsOrServices: string;
-  goodEnoughForRealUser: string;
-  manualSearchTimeEstimate: string;
-  errors: string[];
-  mostUseful: string;
-  whatToImprove: string;
-  missingInformation: string;
-  rolePerspectiveMostImportant: string;
-};
-
-const LIKERT_KEYS = [
-  "institutionalGuidance1",
-  "institutionalGuidance2",
-  "institutionalGuidance3",
-  "operationalUsefulness1",
-  "operationalUsefulness2",
-  "operationalUsefulness3",
-  "accuracyRelevance1",
-  "accuracyRelevance2",
-  "accuracyRelevance3",
-  "clarity1",
-  "clarity2",
-  "clarity3",
-  "trust1",
-  "trust2",
-  "trust3",
-  "overallSatisfaction",
-  "metExpectations",
-] as const;
-
-const ERROR_OPTIONS = [
-  "Pogrešna institucija",
-  "Nedostaje važna institucija",
-  "Nerelevantni kontakti ili linkovi",
-  "Nedostaje konkretan sledeći korak",
-  "Odgovor je previše opšti",
-  "Pravna nepreciznost",
-  "Teško razumljiv odgovor",
-  "Odgovor deluje pouzdano, ali je pogrešan",
-  "Nema značajnih problema",
-  "Drugo",
-];
-
 export default function HomePage() {
   const [query, setQuery] = useState("");
-  const [sessionId] = useState(() => crypto.randomUUID());
-  const [queryCount, setQueryCount] = useState(0);
-  const [remainingBonusQueries, setRemainingBonusQueries] = useState(0);
-  const [surveySkips, setSurveySkips] = useState(0);
-  const [fullSurveyOpen, setFullSurveyOpen] = useState(false);
-  const [miniFeedbackVisible, setMiniFeedbackVisible] = useState(false);
-  const [miniFeedbackHelpfulness, setMiniFeedbackHelpfulness] = useState<"useful" | "partial" | "not_useful" | null>(
-    null,
+  const [sessionId, setSessionId] = useState(() =>
+    typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`,
   );
-  const [miniProblemTypes, setMiniProblemTypes] = useState<string[]>([]);
-  const [miniComment, setMiniComment] = useState("");
   const [lastInteractionId, setLastInteractionId] = useState<string | null>(null);
   const [researchNotice, setResearchNotice] = useState<string | null>(null);
   const [surveyEnabled, setSurveyEnabled] = useState(false);
-  const [surveySaved, setSurveySaved] = useState(false);
-  const [surveyDraft, setSurveyDraft] = useState<SurveyDraft>({
-    usefulness: "partial",
-    sourceRelevance: "not_checked",
-    clarity: "partial",
-    wouldUseAgain: "maybe",
-    freeComment: "",
-  });
-  const [fullSurveyDraft, setFullSurveyDraft] = useState<FullSurveyDraft>({
-    role: "",
-    yearsExperience: "",
-    worksWithCitizensFrequency: "",
-    digitalSkills: "",
-    gender: "",
-    ageGroup: "",
-    educationLevel: "",
-    educationField: "",
-    institutionType: "",
-    usedAiToolsBefore: "",
-    caseComplexity: "",
-    expectedAnswer: "",
-    likert: Object.fromEntries(LIKERT_KEYS.map((key) => [key, null])),
-    identifiedRightInstitution: "",
-    offeredRelevantContactsOrServices: "",
-    goodEnoughForRealUser: "",
-    manualSearchTimeEstimate: "",
-    errors: [],
-    mostUseful: "",
-    whatToImprove: "",
-    missingInformation: "",
-    rolePerspectiveMostImportant: "",
-  });
+  const [surveyRequired, setSurveyRequired] = useState(false);
+  const [surveyModalOpen, setSurveyModalOpen] = useState(false);
+  const [questionsRemaining, setQuestionsRemaining] = useState<number | null>(null);
+  const [surveyTitle, setSurveyTitle] = useState("Anketa za evaluaciju AI agenta za pristup pravdi");
+  const [surveyIntro, setSurveyIntro] = useState("");
+  const [surveyDisclaimer, setSurveyDisclaimer] = useState("");
+  const [surveySuccessMessage, setSurveySuccessMessage] = useState<string | null>(null);
+  const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [latestUserQuery, setLatestUserQuery] = useState("");
+  const [latestAssistantAnswer, setLatestAssistantAnswer] = useState("");
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -157,16 +62,13 @@ export default function HomePage() {
 
   const hasMessages = useMemo(() => messages.length > 0, [messages.length]);
 
-  const canSkipSurvey = surveySkips < 2;
-  const needsSoftFeedbackBlock = queryCount >= 4 && !miniFeedbackHelpfulness && !canSkipSurvey;
-
   const handleQuickAction = (nextQuery: string) => {
     setQuery(nextQuery);
   };
 
   const handleSend = async () => {
     const trimmed = query.trim();
-    if (!trimmed || isLoading || needsSoftFeedbackBlock) {
+    if (!trimmed || isLoading || surveyRequired) {
       return;
     }
 
@@ -176,12 +78,9 @@ export default function HomePage() {
       content: trimmed,
     };
     setMessages((prev) => [...prev, userMessage]);
+    setLatestUserQuery(trimmed);
     setQuery("");
     setIsLoading(true);
-    setQueryCount((prev) => prev + 1);
-    if (remainingBonusQueries > 0) {
-      setRemainingBonusQueries((prev) => prev - 1);
-    }
 
     try {
       const response = await fetch("/api/chat", {
@@ -198,6 +97,13 @@ export default function HomePage() {
       const payload = (await response.json()) as {
         answer: string;
         citations: CitationItem[];
+        rate_limited?: boolean;
+        survey_required?: boolean;
+        questions_remaining?: number;
+        sessionId?: string;
+        surveyTitle?: string;
+        surveyIntro?: string;
+        surveyDisclaimer?: string;
         interactionId?: string;
         surveyEnabled?: boolean;
         researchNotice?: string;
@@ -211,20 +117,25 @@ export default function HomePage() {
       setLastInteractionId(payload.interactionId ?? null);
       setSurveyEnabled(Boolean(payload.surveyEnabled));
       setResearchNotice(payload.researchNotice ?? null);
-      setSurveySaved(false);
-      const shouldOpenMini = queryCount + 1 >= 2;
-      if (shouldOpenMini) {
-        setMiniFeedbackVisible(true);
+      setSessionId(payload.sessionId ?? sessionId);
+      setQuestionsRemaining(
+        typeof payload.questions_remaining === "number" ? payload.questions_remaining : null,
+      );
+      setSurveyRequired(Boolean(payload.survey_required));
+      if (!payload.survey_required) {
+        setSurveyModalOpen(false);
       }
-      const usedEServices = Array.isArray(payload.structured?.eServices) && payload.structured?.eServices.length > 0;
-      const usedLawOrCases =
-        Boolean(payload.structured?.similarCases && payload.structured?.similarCases.length > 0) ||
-        Boolean(payload.citations?.length);
-      const shouldOpenFull = queryCount + 1 >= 4 || usedEServices || usedLawOrCases;
-      if (shouldOpenFull) {
-        setFullSurveyOpen(true);
+      if (payload.surveyTitle) {
+        setSurveyTitle(payload.surveyTitle);
+      }
+      if (payload.surveyIntro) {
+        setSurveyIntro(payload.surveyIntro);
+      }
+      if (payload.surveyDisclaimer) {
+        setSurveyDisclaimer(payload.surveyDisclaimer);
       }
 
+      setLatestAssistantAnswer(payload.answer);
       setMessages((prev) => [
         ...prev,
         {
@@ -251,115 +162,6 @@ export default function HomePage() {
     }
   };
 
-  const submitSurvey = async () => {
-    if (!lastInteractionId || surveySaved) {
-      return;
-    }
-    try {
-      const response = await fetch("/api/survey", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          interactionId: lastInteractionId,
-          ...surveyDraft,
-        }),
-      });
-      if (!response.ok) {
-        return;
-      }
-      setSurveySaved(true);
-    } catch {
-      // survey is optional; ignore errors
-    }
-  };
-
-  const submitMiniFeedback = async () => {
-    if (!lastInteractionId || !miniFeedbackHelpfulness) {
-      return;
-    }
-    try {
-      await fetch("/api/survey", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          interactionId: lastInteractionId,
-          surveyType: "mini",
-          helpfulness: miniFeedbackHelpfulness,
-          problemTypes: miniProblemTypes,
-          freeComment: miniComment,
-          triggerReason: "after_answer",
-          sessionId,
-        }),
-      });
-      setMiniFeedbackVisible(false);
-      setRemainingBonusQueries((prev) => prev + 3);
-      setSurveySaved(true);
-    } catch {
-      // optional
-    }
-  };
-
-  const submitFullSurvey = async () => {
-    if (!lastInteractionId) {
-      return;
-    }
-    try {
-      await fetch("/api/survey", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          interactionId: lastInteractionId,
-          surveyType: "full",
-          triggerReason: "after_n_queries",
-          sessionId,
-          profile: {
-            role: fullSurveyDraft.role,
-            yearsExperience: fullSurveyDraft.yearsExperience,
-            worksWithCitizensFrequency: fullSurveyDraft.worksWithCitizensFrequency,
-            digitalSkills: fullSurveyDraft.digitalSkills,
-          },
-          socioDemographics: {
-            gender: fullSurveyDraft.gender,
-            ageGroup: fullSurveyDraft.ageGroup,
-            educationLevel: fullSurveyDraft.educationLevel,
-            educationField: fullSurveyDraft.educationField,
-            institutionType: fullSurveyDraft.institutionType,
-            usedAiToolsBefore: fullSurveyDraft.usedAiToolsBefore,
-          },
-          testedCase: {
-            caseComplexity: fullSurveyDraft.caseComplexity,
-            expectedAnswer: fullSurveyDraft.expectedAnswer,
-          },
-          likert: fullSurveyDraft.likert,
-          objectiveAssessment: {
-            identifiedRightInstitution: fullSurveyDraft.identifiedRightInstitution,
-            offeredRelevantContactsOrServices: fullSurveyDraft.offeredRelevantContactsOrServices,
-            goodEnoughForRealUser: fullSurveyDraft.goodEnoughForRealUser,
-            manualSearchTimeEstimate: fullSurveyDraft.manualSearchTimeEstimate,
-          },
-          errors: fullSurveyDraft.errors,
-          openFeedback: {
-            mostUseful: fullSurveyDraft.mostUseful,
-            whatToImprove: fullSurveyDraft.whatToImprove,
-            missingInformation: fullSurveyDraft.missingInformation,
-            rolePerspectiveMostImportant: fullSurveyDraft.rolePerspectiveMostImportant,
-          },
-        }),
-      });
-      setFullSurveyOpen(false);
-      setRemainingBonusQueries((prev) => prev + 10);
-      setSurveySaved(true);
-    } catch {
-      // optional
-    }
-  };
-
-  const skipSurvey = () => {
-    setSurveySkips((prev) => prev + 1);
-    setFullSurveyOpen(false);
-    setMiniFeedbackVisible(false);
-  };
-
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl gap-4 p-4 md:p-8">
       <section className="glass-panel flex flex-1 flex-col overflow-hidden rounded-2xl border border-white/10">
@@ -376,6 +178,11 @@ export default function HomePage() {
           <p className="mt-2 inline-flex rounded-full border border-cyan-300/30 bg-cyan-950/30 px-2 py-1 text-[11px] text-cyan-200">
             Access to Justice · SDG 16 · Research prototype
           </p>
+          {questionsRemaining !== null ? (
+            <p className="mt-2 text-xs text-slate-400">
+              Preostalo pitanja u trenutnom bloku: {questionsRemaining}
+            </p>
+          ) : null}
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-6">
@@ -418,16 +225,11 @@ export default function HomePage() {
         </div>
 
         <div className="border-t border-white/10 p-4">
-          {needsSoftFeedbackBlock ? (
-            <section className="mb-3 rounded-xl border border-amber-400/30 bg-amber-900/20 p-3 text-sm text-amber-100">
-              LexVibe je istraživački prototip. Da bismo unapredili alat za pristup pravdi, molimo ocenite bar jedan odgovor pre nastavka.
-            </section>
-          ) : null}
           <ChatInput
             value={query}
             onChange={setQuery}
             onSubmit={handleSend}
-            isLoading={isLoading}
+            isLoading={isLoading || surveyRequired}
           />
           <div className="mt-3 flex flex-wrap gap-2">
             {quickActions.map((action) => (
@@ -441,281 +243,57 @@ export default function HomePage() {
               </button>
             ))}
           </div>
-          {miniFeedbackVisible && lastInteractionId ? (
-            <section className="mt-4 rounded-xl border border-white/10 bg-slate-900/55 p-4">
-              <h3 className="text-sm font-semibold text-slate-100">Da li vam je ovo pomoglo?</h3>
-              <div className="mt-2 flex gap-2">
-                {[
-                  ["useful", "Korisno"],
-                  ["partial", "Delimično"],
-                  ["not_useful", "Nije korisno"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setMiniFeedbackHelpfulness(value as "useful" | "partial" | "not_useful")}
-                    className={cn(
-                      "rounded-md px-3 py-1 text-xs",
-                      miniFeedbackHelpfulness === value
-                        ? "bg-cyan-700 text-white"
-                        : "bg-slate-800 text-slate-200",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {miniFeedbackHelpfulness && miniFeedbackHelpfulness !== "useful" ? (
-                <div className="mt-3 space-y-2">
-                  <p className="text-xs text-slate-300">Šta je bio problem?</p>
-                  <div className="flex flex-wrap gap-2">
-                    {ERROR_OPTIONS.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() =>
-                          setMiniProblemTypes((prev) =>
-                            prev.includes(option) ? prev.filter((item) => item !== option) : [...prev, option],
-                          )
-                        }
-                        className={cn(
-                          "rounded-full border px-2 py-1 text-[11px]",
-                          miniProblemTypes.includes(option)
-                            ? "border-cyan-400 bg-cyan-900/40 text-cyan-100"
-                            : "border-slate-700 bg-slate-900/50 text-slate-300",
-                        )}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                  <textarea
-                    className="w-full rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-100"
-                    rows={2}
-                    value={miniComment}
-                    onChange={(event) => setMiniComment(event.target.value)}
-                    placeholder="Kratak komentar (opciono)"
-                  />
-                </div>
-              ) : null}
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={submitMiniFeedback}
-                  disabled={!miniFeedbackHelpfulness}
-                  className="rounded-md bg-cyan-700 px-3 py-1 text-sm text-white disabled:opacity-50"
-                >
-                  Sačuvaj mini feedback
-                </button>
-                {canSkipSurvey ? (
-                  <button
-                    type="button"
-                    onClick={skipSurvey}
-                    className="rounded-md bg-slate-800 px-3 py-1 text-sm text-slate-200"
-                  >
-                    Preskoči sada
-                  </button>
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-          {fullSurveyOpen && lastInteractionId ? (
-            <section className="mt-4 rounded-xl border border-white/10 bg-slate-900/55 p-4">
-              <h3 className="text-sm font-semibold text-slate-100">Proširena evaluacija (Access to Justice)</h3>
-              <p className="mt-2 text-xs text-slate-400">
-                Vaša ocena pomaže istraživanju alata za pristup pravdi. Ne unosite lične podatke.
+          {surveyRequired ? (
+            <section className="mt-4 rounded-xl border border-cyan-400/30 bg-cyan-950/30 p-4 text-sm text-cyan-100">
+              <p>
+                Dostigli ste broj besplatnih pitanja. LexVibe je istraživački prototip. Vaše povratne
+                informacije nam pomažu da proverimo koliko su odgovori razumljivi, korisni i bezbedni za
+                građane. Molimo Vas da popunite evaluacionu anketu kako biste nastavili korišćenje.
               </p>
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <label className="text-xs text-slate-300">
-                  Profesionalna uloga
-                  <input
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={fullSurveyDraft.role}
-                    onChange={(event) =>
-                      setFullSurveyDraft((prev) => ({ ...prev, role: event.target.value }))
-                    }
-                  />
-                </label>
-                <label className="text-xs text-slate-300">
-                  Iskustvo
-                  <input
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={fullSurveyDraft.yearsExperience}
-                    onChange={(event) =>
-                      setFullSurveyDraft((prev) => ({ ...prev, yearsExperience: event.target.value }))
-                    }
-                  />
-                </label>
-                <label className="text-xs text-slate-300 md:col-span-2">
-                  Očekivanja od odgovora
-                  <textarea
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    rows={2}
-                    value={fullSurveyDraft.expectedAnswer}
-                    onChange={(event) =>
-                      setFullSurveyDraft((prev) => ({ ...prev, expectedAnswer: event.target.value }))
-                    }
-                  />
-                </label>
-                <label className="text-xs text-slate-300">
-                  Ukupno zadovoljstvo (1-5)
-                  <input
-                    type="number"
-                    min={1}
-                    max={5}
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={fullSurveyDraft.likert.overallSatisfaction ?? ""}
-                    onChange={(event) =>
-                      setFullSurveyDraft((prev) => ({
-                        ...prev,
-                        likert: {
-                          ...prev.likert,
-                          overallSatisfaction: Number(event.target.value) || null,
-                        },
-                      }))
-                    }
-                  />
-                </label>
-                <label className="text-xs text-slate-300">
-                  Ispunjenost očekivanja (1-5)
-                  <input
-                    type="number"
-                    min={1}
-                    max={5}
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={fullSurveyDraft.likert.metExpectations ?? ""}
-                    onChange={(event) =>
-                      setFullSurveyDraft((prev) => ({
-                        ...prev,
-                        likert: {
-                          ...prev.likert,
-                          metExpectations: Number(event.target.value) || null,
-                        },
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={submitFullSurvey}
-                  className="rounded-md bg-cyan-700 px-3 py-1 text-sm text-white"
-                >
-                  Pošalji punu anketu
-                </button>
-                {canSkipSurvey ? (
-                  <button
-                    type="button"
-                    onClick={skipSurvey}
-                    className="rounded-md bg-slate-800 px-3 py-1 text-sm text-slate-200"
-                  >
-                    Preskoči sada
-                  </button>
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-          {surveyEnabled && lastInteractionId ? (
-            <section className="mt-4 rounded-xl border border-white/10 bg-slate-900/55 p-4">
-              <h3 className="text-sm font-semibold text-slate-100">Kratka anketa (opciono)</h3>
-              {researchNotice ? (
-                <p className="mt-2 text-xs text-slate-400">{researchNotice}</p>
-              ) : null}
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <label className="text-xs text-slate-300">
-                  Korisnost
-                  <select
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={surveyDraft.usefulness}
-                    onChange={(event) =>
-                      setSurveyDraft((prev) => ({
-                        ...prev,
-                        usefulness: event.target.value as SurveyDraft["usefulness"],
-                      }))
-                    }
-                  >
-                    <option value="yes">Da</option>
-                    <option value="partial">Delimično</option>
-                    <option value="no">Ne</option>
-                  </select>
-                </label>
-                <label className="text-xs text-slate-300">
-                  Relevantnost izvora
-                  <select
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={surveyDraft.sourceRelevance}
-                    onChange={(event) =>
-                      setSurveyDraft((prev) => ({
-                        ...prev,
-                        sourceRelevance: event.target.value as SurveyDraft["sourceRelevance"],
-                      }))
-                    }
-                  >
-                    <option value="yes">Da</option>
-                    <option value="partial">Delimično</option>
-                    <option value="no">Ne</option>
-                    <option value="not_checked">Nisam proverio/la</option>
-                  </select>
-                </label>
-                <label className="text-xs text-slate-300">
-                  Jasnoća odgovora
-                  <select
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={surveyDraft.clarity}
-                    onChange={(event) =>
-                      setSurveyDraft((prev) => ({
-                        ...prev,
-                        clarity: event.target.value as SurveyDraft["clarity"],
-                      }))
-                    }
-                  >
-                    <option value="yes">Da</option>
-                    <option value="partial">Delimično</option>
-                    <option value="no">Ne</option>
-                  </select>
-                </label>
-                <label className="text-xs text-slate-300">
-                  Koristio/la bih opet
-                  <select
-                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                    value={surveyDraft.wouldUseAgain}
-                    onChange={(event) =>
-                      setSurveyDraft((prev) => ({
-                        ...prev,
-                        wouldUseAgain: event.target.value as SurveyDraft["wouldUseAgain"],
-                      }))
-                    }
-                  >
-                    <option value="yes">Da</option>
-                    <option value="maybe">Možda</option>
-                    <option value="no">Ne</option>
-                  </select>
-                </label>
-              </div>
-              <label className="mt-3 block text-xs text-slate-300">
-                Slobodan komentar
-                <textarea
-                  className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
-                  rows={2}
-                  value={surveyDraft.freeComment}
-                  onChange={(event) =>
-                    setSurveyDraft((prev) => ({ ...prev, freeComment: event.target.value }))
-                  }
-                />
-              </label>
               <button
                 type="button"
-                onClick={submitSurvey}
-                disabled={surveySaved}
-                className="mt-3 rounded-md bg-cyan-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                onClick={() => setSurveyModalOpen(true)}
+                className="mt-3 rounded-md bg-cyan-700 px-3 py-1.5 text-sm text-white"
               >
-                {surveySaved ? "Hvala na povratnoj informaciji" : "Pošalji anketu"}
+                Popuni anketu i nastavi
               </button>
+            </section>
+          ) : null}
+          {surveySuccessMessage ? (
+            <section className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-950/30 p-4 text-sm text-emerald-200">
+              {surveySuccessMessage}
+            </section>
+          ) : null}
+          {surveyError ? (
+            <section className="mt-4 rounded-xl border border-rose-400/30 bg-rose-950/30 p-4 text-sm text-rose-200">
+              {surveyError}
+            </section>
+          ) : null}
+          {surveyEnabled && researchNotice ? (
+            <section className="mt-4 rounded-xl border border-white/10 bg-slate-900/55 p-4 text-xs text-slate-400">
+              {researchNotice}
             </section>
           ) : null}
         </div>
       </section>
+      <ResearchSurveyModal
+        isOpen={surveyRequired && surveyModalOpen}
+        interactionId={lastInteractionId}
+        sessionId={sessionId}
+        latestUserQuery={latestUserQuery}
+        latestAssistantAnswer={latestAssistantAnswer}
+        surveyTitle={surveyTitle}
+        surveyIntro={surveyIntro}
+        surveyDisclaimer={surveyDisclaimer}
+        onClose={() => setSurveyModalOpen(false)}
+        onSubmitSuccess={(questionsUnlocked) => {
+          setSurveyRequired(false);
+          setSurveyModalOpen(false);
+          setSurveyError(null);
+          setSurveySuccessMessage("Hvala Vam. Možete nastaviti korišćenje LexVibe asistenta.");
+          setQuestionsRemaining(questionsUnlocked);
+        }}
+      />
     </main>
   );
 }
