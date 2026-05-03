@@ -15,10 +15,10 @@ class CaseLawRetriever:
         self,
         query: str,
         extracted_facts: list[str] | None = None,
-        initial_k: int,
-        reranked_k: int,
-        analyze_k: int,
-        display_k: int,
+        initial_k: int = 50,
+        reranked_k: int = 10,
+        analyze_k: int = 3,
+        display_k: int = 3,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if not self.enabled:
             return [], {
