@@ -33,6 +33,12 @@ class StoredDocument:
     original_length: int
 
 
+@dataclass(slots=True)
+class DecisionMetadata:
+    court: str
+    decision_number: str
+
+
 CYRILLIC_TO_LATIN_MAP = {
     "А": "A",
     "а": "a",
@@ -114,6 +120,48 @@ def _sanitize_filename(filename: str) -> str:
     if not safe_name or "." not in safe_name:
         raise DocumentProcessingError("Neispravan naziv dokumenta.")
     return safe_name
+
+
+def _slug_to_title(value: str) -> str:
+    parts = [part for part in re.split(r"[-_]+", value) if part]
+    if not parts:
+        return "Nepoznati sud"
+    stop_words = {"i", "u", "na", "od", "za", "o"}
+    titled_parts: list[str] = []
+    for index, part in enumerate(parts):
+        cleaned = part.strip()
+        if not cleaned:
+            continue
+        if index > 0 and cleaned in stop_words:
+            titled_parts.append(cleaned)
+        else:
+            titled_parts.append(cleaned.capitalize())
+    return " ".join(titled_parts) if titled_parts else "Nepoznati sud"
+
+
+def extract_decision_metadata(filename: str) -> DecisionMetadata:
+    stem = Path(filename).stem.lower()
+    tokens = [token for token in re.split(r"[-_]+", stem) if token]
+
+    for idx in range(0, len(tokens) - 2):
+        code = tokens[idx]
+        number = tokens[idx + 1]
+        year = tokens[idx + 2]
+        if not re.search(r"[a-z]", code):
+            continue
+        if not number.isdigit():
+            continue
+        if not re.fullmatch(r"\d{4}", year):
+            continue
+
+        decision_number = f"{code.upper()}-{number}/{year}"
+        court_slug = "-".join(tokens[:idx]) if idx > 0 else "nepoznati-sud"
+        return DecisionMetadata(
+            court=_slug_to_title(court_slug),
+            decision_number=decision_number,
+        )
+
+    return DecisionMetadata(court="Nepoznati sud", decision_number=Path(filename).stem)
 
 
 def normalize_serbian_text(text: str) -> str:

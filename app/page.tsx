@@ -5,7 +5,7 @@ import { Gavel, Loader2, MessageSquareText } from "lucide-react";
 
 import { ChatInput } from "@/components/ChatInput";
 import { CitationCard, CitationItem } from "@/components/CitationCard";
-import { Sidebar } from "@/components/Sidebar";
+import { ResearchSurveyModal } from "@/components/ResearchSurveyModal";
 import { cn } from "@/lib/utils";
 
 type ChatRole = "user" | "assistant";
@@ -17,23 +17,58 @@ type Message = {
   citations?: CitationItem[];
 };
 
+type QuickAction = {
+  id: string;
+  label: string;
+  query: string;
+};
+
 export default function HomePage() {
   const [query, setQuery] = useState("");
+  const [sessionId, setSessionId] = useState(() =>
+    typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`,
+  );
+  const [lastInteractionId, setLastInteractionId] = useState<string | null>(null);
+  const [researchNotice, setResearchNotice] = useState<string | null>(null);
+  const [surveyEnabled, setSurveyEnabled] = useState(false);
+  const [surveyRequired, setSurveyRequired] = useState(false);
+  const [surveyModalOpen, setSurveyModalOpen] = useState(false);
+  const [questionsRemaining, setQuestionsRemaining] = useState<number | null>(null);
+  const [surveyTitle, setSurveyTitle] = useState("Anketa za evaluaciju AI agenta za pristup pravdi");
+  const [surveyIntro, setSurveyIntro] = useState("");
+  const [surveyDisclaimer, setSurveyDisclaimer] = useState("");
+  const [surveySuccessMessage, setSurveySuccessMessage] = useState<string | null>(null);
+  const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [latestUserQuery, setLatestUserQuery] = useState("");
+  const [latestAssistantAnswer, setLatestAssistantAnswer] = useState("");
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
       content:
-        "Dobrodošli u LexVibe. Postavite pravno pitanje i dobićete odgovor zasnovan na vašoj bazi dokumenata.",
+        "Dobrodošli u LexVibe Legal AI.\n\nLexVibe je istraživački prototip za pravnu orijentaciju i pristup pravdi. Opišite problem običnim jezikom, a agent će vas usmeriti ka sledećem koraku, relevantnom propisu, instituciji ili servisu.",
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const quickActions: QuickAction[] = [
+    { id: "qa-analyze", label: "Analiziraj situaciju", query: "Analiziraj moju pravnu situaciju." },
+    { id: "qa-reg", label: "Pronađi propis", query: "Pronađi relevantan propis za ovo pitanje." },
+    { id: "qa-case", label: "Pronađi praksu", query: "Pronađi sličnu sudsku praksu za ovu situaciju." },
+    { id: "qa-status", label: "Gde mogu da proverim?", query: "Gde mogu da proverim status predmeta?" },
+    { id: "qa-envelope", label: "Pomozite mi oko dopisa", query: "Stigao mi je dopis, pomozite da razumem sledeći korak." },
+    { id: "qa-followup", label: "Pitaj me šta još treba", query: "Postavi mi pitanja koja su potrebna za precizniji odgovor." },
+  ];
+
   const hasMessages = useMemo(() => messages.length > 0, [messages.length]);
+
+  const handleQuickAction = (nextQuery: string) => {
+    setQuery(nextQuery);
+  };
 
   const handleSend = async () => {
     const trimmed = query.trim();
-    if (!trimmed || isLoading) {
+    if (!trimmed || isLoading || surveyRequired) {
       return;
     }
 
@@ -43,6 +78,7 @@ export default function HomePage() {
       content: trimmed,
     };
     setMessages((prev) => [...prev, userMessage]);
+    setLatestUserQuery(trimmed);
     setQuery("");
     setIsLoading(true);
 
@@ -50,7 +86,7 @@ export default function HomePage() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
+        body: JSON.stringify({ query: trimmed, sessionId }),
       });
 
       if (!response.ok) {
@@ -61,8 +97,45 @@ export default function HomePage() {
       const payload = (await response.json()) as {
         answer: string;
         citations: CitationItem[];
+        rate_limited?: boolean;
+        survey_required?: boolean;
+        questions_remaining?: number;
+        sessionId?: string;
+        surveyTitle?: string;
+        surveyIntro?: string;
+        surveyDisclaimer?: string;
+        interactionId?: string;
+        surveyEnabled?: boolean;
+        researchNotice?: string;
+        structured?: {
+          topK?: Record<string, unknown>;
+          similarCases?: CitationItem[];
+          eServices?: unknown[];
+        };
       };
 
+      setLastInteractionId(payload.interactionId ?? null);
+      setSurveyEnabled(Boolean(payload.surveyEnabled));
+      setResearchNotice(payload.researchNotice ?? null);
+      setSessionId(payload.sessionId ?? sessionId);
+      setQuestionsRemaining(
+        typeof payload.questions_remaining === "number" ? payload.questions_remaining : null,
+      );
+      setSurveyRequired(Boolean(payload.survey_required));
+      if (!payload.survey_required) {
+        setSurveyModalOpen(false);
+      }
+      if (payload.surveyTitle) {
+        setSurveyTitle(payload.surveyTitle);
+      }
+      if (payload.surveyIntro) {
+        setSurveyIntro(payload.surveyIntro);
+      }
+      if (payload.surveyDisclaimer) {
+        setSurveyDisclaimer(payload.surveyDisclaimer);
+      }
+
+      setLatestAssistantAnswer(payload.answer);
       setMessages((prev) => [
         ...prev,
         {
@@ -90,15 +163,26 @@ export default function HomePage() {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl gap-4 p-4 md:p-8">
-      <Sidebar />
+    <main className="mx-auto flex min-h-screen w-full max-w-5xl gap-4 p-4 md:p-8">
       <section className="glass-panel flex flex-1 flex-col overflow-hidden rounded-2xl border border-white/10">
         <header className="border-b border-white/10 px-5 py-4">
           <p className="text-xs uppercase tracking-[0.32em] text-slate-400">LexVibe Legal AI</p>
           <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold text-slate-100">
             <Gavel className="h-5 w-5 text-cyan-300" />
-            Profesionalni pravni asistent
+            Istraživački alat za pristup pravdi
           </h1>
+          <p className="mt-2 text-sm text-slate-300">
+            Postavite pitanje običnim jezikom. Agent će pokušati da vas usmeri ka propisu, sudskoj praksi,
+            e-servisu, instituciji ili sledećem praktičnom koraku.
+          </p>
+          <p className="mt-2 inline-flex rounded-full border border-cyan-300/30 bg-cyan-950/30 px-2 py-1 text-[11px] text-cyan-200">
+            Access to Justice · SDG 16 · Research prototype
+          </p>
+          {questionsRemaining !== null ? (
+            <p className="mt-2 text-xs text-slate-400">
+              Preostalo pitanja u trenutnom bloku: {questionsRemaining}
+            </p>
+          ) : null}
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-6">
@@ -106,7 +190,7 @@ export default function HomePage() {
             <div className="flex h-full flex-col items-center justify-center text-center text-slate-400">
               <MessageSquareText className="mb-3 h-9 w-9" />
               <p className="max-w-md text-sm">
-                Unesite pravni upit kako biste dobili sažetak sa citatima izvora i procenom relevantnosti.
+                Opišite problem, a agent će vas voditi kroz pravni sistem korak po korak.
               </p>
             </div>
           ) : (
@@ -145,10 +229,71 @@ export default function HomePage() {
             value={query}
             onChange={setQuery}
             onSubmit={handleSend}
-            isLoading={isLoading}
+            isLoading={isLoading || surveyRequired}
           />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {quickActions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => handleQuickAction(action.query)}
+                className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          {surveyRequired ? (
+            <section className="mt-4 rounded-xl border border-cyan-400/30 bg-cyan-950/30 p-4 text-sm text-cyan-100">
+              <p>
+                Dostigli ste broj besplatnih pitanja. LexVibe je istraživački prototip. Vaše povratne
+                informacije nam pomažu da proverimo koliko su odgovori razumljivi, korisni i bezbedni za
+                građane. Molimo Vas da popunite evaluacionu anketu kako biste nastavili korišćenje.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSurveyModalOpen(true)}
+                className="mt-3 rounded-md bg-cyan-700 px-3 py-1.5 text-sm text-white"
+              >
+                Popuni anketu i nastavi
+              </button>
+            </section>
+          ) : null}
+          {surveySuccessMessage ? (
+            <section className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-950/30 p-4 text-sm text-emerald-200">
+              {surveySuccessMessage}
+            </section>
+          ) : null}
+          {surveyError ? (
+            <section className="mt-4 rounded-xl border border-rose-400/30 bg-rose-950/30 p-4 text-sm text-rose-200">
+              {surveyError}
+            </section>
+          ) : null}
+          {surveyEnabled && researchNotice ? (
+            <section className="mt-4 rounded-xl border border-white/10 bg-slate-900/55 p-4 text-xs text-slate-400">
+              {researchNotice}
+            </section>
+          ) : null}
         </div>
       </section>
+      <ResearchSurveyModal
+        isOpen={surveyRequired && surveyModalOpen}
+        interactionId={lastInteractionId}
+        sessionId={sessionId}
+        latestUserQuery={latestUserQuery}
+        latestAssistantAnswer={latestAssistantAnswer}
+        surveyTitle={surveyTitle}
+        surveyIntro={surveyIntro}
+        surveyDisclaimer={surveyDisclaimer}
+        onClose={() => setSurveyModalOpen(false)}
+        onSubmitSuccess={(questionsUnlocked) => {
+          setSurveyRequired(false);
+          setSurveyModalOpen(false);
+          setSurveyError(null);
+          setSurveySuccessMessage("Hvala Vam. Možete nastaviti korišćenje LexVibe asistenta.");
+          setQuestionsRemaining(questionsUnlocked);
+        }}
+      />
     </main>
   );
 }

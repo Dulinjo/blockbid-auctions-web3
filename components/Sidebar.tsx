@@ -44,11 +44,11 @@ export function Sidebar() {
       <div className="space-y-4 border-t border-white/10 pt-5 text-xs text-slate-300/80">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-emerald-300" />
-          <span>Odgovori su informativni i nisu zamena za pravni savet.</span>
+          <span>Odgovori služe za orijentaciju i analizu pravnog materijala.</span>
         </div>
         <div className="flex items-center gap-2">
           <Scale className="h-4 w-4 text-cyan-300" />
-          <span>Profesionalni pravni ton na srpskom jeziku.</span>
+          <span>Uključeni sudska praksa i javno dostupni propisi.</span>
         </div>
       </div>
     </aside>

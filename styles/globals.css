@@ -36,6 +36,18 @@ body {
   backdrop-filter: blur(12px);
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 960px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}
+
 .legal-scrollbar::-webkit-scrollbar {
   width: 8px;
 }
