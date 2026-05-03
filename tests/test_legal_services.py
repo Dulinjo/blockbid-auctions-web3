@@ -9,6 +9,7 @@ from api.services.echr_checker import search_echr_analogies
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
     INTENT_CASE_LAW_SEARCH,
+    INTENT_ECHR_CASE_LAW_SEARCH,
     INTENT_LEGAL_SITUATION_ANALYSIS,
     INTENT_REGULATION_LOOKUP,
     classify_intent,
@@ -118,7 +119,28 @@ def test_intake_echr_explicit_query_triggers_echr_check(monkeypatch) -> None:
     entities = extract_entities(preprocessed.normalized_query, source="user_query")
     decision = classify_intent(question, preprocessed, entities)
     assert decision.needs_echr_check is True
-    assert decision.intent in {INTENT_CASE_LAW_SEARCH, INTENT_LEGAL_SITUATION_ANALYSIS}
+    assert decision.intent in {
+        INTENT_CASE_LAW_SEARCH,
+        INTENT_LEGAL_SITUATION_ANALYSIS,
+        INTENT_ECHR_CASE_LAW_SEARCH,
+    }
+
+
+def test_intake_explicit_echr_query_no_clarification_and_serbia_first_routing(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = (
+        "da li je u Strazburu bilo presuda protiv Srbije zbog dugog trajanja sudskih postupaka "
+        "mislim na sudjenje u razumnom roku"
+    )
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.needs_echr_check is True
+    assert decision.needs_clarification is False
+    assert decision.clarifying_questions == []
+    assert decision.needs_case_law_search is False
+    assert decision.routing_decision == "run_echr_serbia_first_search"
+    assert decision.intent == INTENT_ECHR_CASE_LAW_SEARCH
 
 
 def test_intake_ambiguous_stiglo_mi_je_nesto_prefers_clarification(monkeypatch) -> None:
@@ -346,3 +368,22 @@ def test_echr_top_k_counts_present() -> None:
         "echrDisplayedResultsCount",
     ):
         assert key in metrics
+
+
+def test_echr_fallback_message_mentions_article6_and_13() -> None:
+    result = search_echr_analogies(
+        {
+            "userQuestion": (
+                "da li je u Strazburu bilo presuda protiv Srbije zbog dugog trajanja sudskih postupaka "
+                "mislim na sudjenje u razumnom roku"
+            ),
+            "extractedFacts": ["dugo trajanje postupka", "sudjenje u razumnom roku"],
+            "possibleConventionArticles": [],
+            "preferSerbiaCases": True,
+            "maxResults": 3,
+            "triggeredBy": "explicit_user_request",
+        }
+    )
+    if result.get("errors"):
+        assert "član 6" in result.get("echrLimitations", "").lower()
+        assert "član 13" in result.get("echrLimitations", "").lower()

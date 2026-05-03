@@ -68,3 +68,30 @@ def test_chat_regulation_lookup_does_not_fall_back_to_empty_rag(monkeypatch) -> 
         "LEGAL_SITUATION_ANALYSIS",
         "COMBINED_REGULATION_AND_CASE_LAW",
     }
+
+
+def test_chat_explicit_echr_query_runs_without_local_index_dependency(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "query": (
+                "da li je u Strazburu bilo presuda protiv Srbije zbog dugog trajanja sudskih postupaka "
+                "mislim na sudjenje u razumnom roku"
+            )
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    structured = payload.get("structured", {})
+    intake = structured.get("intake", {})
+    assert intake.get("needsEchrCheck") is True
+    assert intake.get("needsClarification") is False
+    assert intake.get("routingDecision") == "run_echr_serbia_first_search"
+    assert intake.get("needsCaseLawSearch") is False
+    echr_debug = structured.get("echrDebug", {})
+    assert echr_debug.get("echrExplicitMention") is True
+    assert echr_debug.get("localCaseLawRequired") is False
+    assert echr_debug.get("localIndexRequired") is False
+    assert "razumnom roku" in payload.get("answer", "").lower()

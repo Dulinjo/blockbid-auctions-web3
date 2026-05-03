@@ -23,6 +23,7 @@ from api.services.e_services_guide import search_e_services_guide
 from api.services.entity_recognition_and_linking import entity_service
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
+    INTENT_ECHR_CASE_LAW_SEARCH,
     INTENT_LEGAL_SITUATION_ANALYSIS,
     INTENT_CASE_LAW_SEARCH,
     INTENT_CLARIFICATION_NEEDED,
@@ -40,10 +41,34 @@ from api.services.temporal_validity_checker import TemporalValidityChecker
 
 app = FastAPI(title="LexVibe API", version="1.0.0")
 
+ECHR_EXPLICIT_TERMS = (
+    "strasbourg",
+    "strazbur",
+    "esljp",
+    "есљп",
+    "echr",
+    "european court of human rights",
+    "evropski sud za ljudska prava",
+    "evropska konvencija",
+    "konvencija",
+)
+
 RESEARCH_NOTICE = (
     "Vaše pitanje, odgovor sistema i dobrovoljna ocena mogu biti sačuvani "
     "u anonimizovanom obliku radi istraživanja i unapređenja sistema. "
     "Ne unosite osetljive lične podatke."
+)
+
+ECHR_EXPLICIT_TOKENS = (
+    "strasbourg",
+    "strazbur",
+    "esljp",
+    "есљп",
+    "echr",
+    "european court of human rights",
+    "evropski sud za ljudska prava",
+    "evropska konvencija",
+    "konvencija",
 )
 
 app.add_middleware(
@@ -458,7 +483,11 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                         for idx, row in enumerate(regulation_rows)
                     )
 
-        should_use_case_law = bool(intake.needs_case_law_search)
+        echr_explicit_mention = bool(getattr(intake, "echr_explicit_mention", False))
+        local_case_law_required = bool(intake.needs_case_law_search and not echr_explicit_mention)
+        local_index_required = bool(local_case_law_required)
+        echr_search_mode = "serbia_first" if intake.needs_echr_check else ""
+        should_use_case_law = bool(local_case_law_required)
         domestic_topk = {
             "domesticCaseTopKUsed": should_use_case_law,
             "domesticInitialResultsCount": 0,
@@ -525,7 +554,12 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 {
                     "userQuestion": payload.query,
                     "extractedFacts": intake.detected_facts,
-                    "possibleConventionArticles": [],
+                    "possibleConventionArticles": getattr(
+                        intake,
+                        "possible_convention_articles",
+                        [],
+                    )
+                    or [],
                     "preferSerbiaCases": True,
                     "maxResults": k_config.max_echr_cases_in_answer,
                     "serbiaInitialK": k_config.serbia_hudoc_initial_k,
@@ -555,9 +589,14 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                     ),
                 }
             )
+            echr_result["echrCheckAttempted"] = True
+            echr_result["echrSearchMode"] = echr_search_mode
             topk_metrics = echr_result.get("topKMetrics", {})
             if isinstance(topk_metrics, dict):
                 echr_result.update(topk_metrics)
+        else:
+            echr_result["echrCheckAttempted"] = False
+            echr_result["echrSearchMode"] = ""
         print(
             "[legal-routing-debug]",
             {
@@ -566,6 +605,11 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "routingDecision": intake.routing_decision,
                 "pisLookupCalled": should_use_regulation,
                 "caseLawSearchCalled": should_use_case_law,
+                "echrExplicitMention": echr_explicit_mention,
+                "echrCheckAttempted": bool(echr_result.get("echrCheckAttempted", False)),
+                "echrSearchMode": echr_result.get("echrSearchMode", ""),
+                "localCaseLawRequired": local_case_law_required,
+                "localIndexRequired": local_index_required,
             },
         )
 
@@ -573,6 +617,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             INTENT_LEGAL_SITUATION_ANALYSIS,
             INTENT_REGULATION_LOOKUP,
             INTENT_CASE_LAW_SEARCH,
+            INTENT_ECHR_CASE_LAW_SEARCH,
             INTENT_COMBINED,
         }
         should_skip_generic_rag_fallback = (
@@ -640,6 +685,13 @@ async def chat(payload: ChatRequest) -> ChatResponse:
             answer = "\n\n".join(part for part in answer_parts if part)
             answer = f"{answer}\n\n{disclaimer}"
             echr_section = ""
+            if echr_explicit_mention and not echr_result.get("echrCheckPerformed"):
+                echr_section = (
+                    "\n\nPrepoznao sam da pitate za praksu Evropskog suda za ljudska prava "
+                    "o pravu na suđenje u razumnom roku. Automatska HUDOC provera trenutno nije "
+                    "dostupna, ali ovo se tipično vezuje za član 6 Evropske konvencije, a često i "
+                    "član 13 u vezi sa delotvornim pravnim lekom.\n"
+                )
             if echr_result.get("echrCheckPerformed"):
                 if echr_result.get("serbiaSimilarCaseFound") and echr_result.get(
                     "serbiaCondemnedOrViolationFound"
@@ -667,9 +719,17 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                         "Na osnovu dostupne HUDOC pretrage nisam pronašao dovoljno pouzdanu analognu praksu.\n"
                     )
             if echr_result.get("errors") and echr_should_run:
-                echr_section = (
-                    "\n\nProvera prakse Evropskog suda za ljudska prava trenutno nije dostupna.\n"
-                )
+                if echr_explicit_mention:
+                    echr_section = (
+                        "\n\nPrepoznao sam da pitate za praksu Evropskog suda za ljudska prava "
+                        "o pravu na suđenje u razumnom roku. Automatska HUDOC provera trenutno nije "
+                        "dostupna, ali ovo se tipično vezuje za član 6 Evropske konvencije, a često i "
+                        "član 13 u vezi sa delotvornim pravnim lekom.\n"
+                    )
+                else:
+                    echr_section = (
+                        "\n\nProvera prakse Evropskog suda za ljudska prava trenutno nije dostupna.\n"
+                    )
             elif echr_result.get("echrCheckPerformed"):
                 echr_section = (
                     f"{echr_section}\nProvera je izvršena kroz ciljanu top-k HUDOC pretragu. "
@@ -685,6 +745,13 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "intent": intake.intent,
                 "intake": intake.to_json(),
                 "continuedWithoutCaseLaw": bool(should_use_case_law and not case_rows),
+                "echrDebug": {
+                    "echrExplicitMention": echr_explicit_mention,
+                    "echrCheckAttempted": bool(echr_result.get("echrCheckAttempted", False)),
+                    "echrSearchMode": echr_result.get("echrSearchMode", ""),
+                    "localCaseLawRequired": local_case_law_required,
+                    "localIndexRequired": local_index_required,
+                },
                 "shortAnswer": analysis.short_answer,
                 "relevantRegulations": analysis.regulation_rows,
                 "similarCases": analysis.case_rows,
@@ -776,6 +843,11 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 "latencyMs": int((time.perf_counter() - started) * 1000),
                 "errors": errors,
                 "echrCheckPerformed": echr_result.get("echrCheckPerformed", False),
+                "echrExplicitMention": echr_explicit_mention,
+                "echrCheckAttempted": bool(echr_result.get("echrCheckAttempted", False)),
+                "echrSearchMode": echr_result.get("echrSearchMode", ""),
+                "localCaseLawRequired": local_case_law_required,
+                "localIndexRequired": local_index_required,
                 "echrTriggeredBy": echr_result.get("echrTriggeredBy", ""),
                 "possibleConventionArticles": echr_result.get("possibleConventionArticles", []),
                 "serbiaSearchPerformed": echr_result.get("serbiaSearchPerformed", False),

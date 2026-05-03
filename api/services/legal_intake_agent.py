@@ -14,6 +14,7 @@ from api.services.config import feature_enabled
 INTENT_LEGAL_SITUATION_ANALYSIS = "LEGAL_SITUATION_ANALYSIS"
 INTENT_REGULATION_LOOKUP = "REGULATION_LOOKUP"
 INTENT_CASE_LAW_SEARCH = "CASE_LAW_SEARCH"
+INTENT_ECHR_CASE_LAW_SEARCH = "ECHR_CASE_LAW_SEARCH"
 INTENT_COMBINED = "COMBINED_REGULATION_AND_CASE_LAW"
 INTENT_CLARIFICATION_NEEDED = "CLARIFICATION_NEEDED"
 INTENT_OUT_OF_SCOPE = "OUT_OF_SCOPE"
@@ -37,10 +38,13 @@ class IntakeDecision:
     needs_temporal_validity_check: bool
     possible_regulations: list[str]
     possible_services: list[str]
+    possible_convention_articles: list[str]
     e_service_intent: str
+    echr_explicit_mention: bool
     clarifying_questions: list[str]
     search_query_for_regulations: str
     search_query_for_case_law: str
+    search_query_for_echr: str
     routing_decision: str
     reasoning_summary: str
     intake_source: str
@@ -64,10 +68,13 @@ class IntakeDecision:
             "needsTemporalValidityCheck": self.needs_temporal_validity_check,
             "possibleRegulations": self.possible_regulations,
             "possibleServices": self.possible_services,
+            "possibleConventionArticles": self.possible_convention_articles,
             "eServiceIntent": self.e_service_intent,
+            "echrExplicitMention": self.echr_explicit_mention,
             "clarifyingQuestions": self.clarifying_questions,
             "searchQueryForRegulations": self.search_query_for_regulations,
             "searchQueryForCaseLaw": self.search_query_for_case_law,
+            "searchQueryForEchr": self.search_query_for_echr,
             "routingDecision": self.routing_decision,
             "reasoningSummary": self.reasoning_summary,
             "intakeSource": self.intake_source,
@@ -95,6 +102,7 @@ def _normalize_intent(intent: str) -> str:
         "LEGAL_SITUATION_ANALYSIS": INTENT_LEGAL_SITUATION_ANALYSIS,
         "REGULATION_LOOKUP": INTENT_REGULATION_LOOKUP,
         "CASE_LAW_SEARCH": INTENT_CASE_LAW_SEARCH,
+        "ECHR_CASE_LAW_SEARCH": INTENT_ECHR_CASE_LAW_SEARCH,
         "CLARIFICATION_NEEDED": INTENT_CLARIFICATION_NEEDED,
         "OUT_OF_SCOPE": INTENT_OUT_OF_SCOPE,
     }
@@ -161,6 +169,8 @@ def _default_routing(intent: str) -> str:
         if intent == INTENT_COMBINED
         else "regulation_pipeline"
         if intent == INTENT_REGULATION_LOOKUP
+        else "run_echr_serbia_first_search"
+        if intent == INTENT_ECHR_CASE_LAW_SEARCH
         else "case_law_pipeline"
         if intent == INTENT_CASE_LAW_SEARCH
         else "situation_pipeline"
@@ -252,11 +262,14 @@ def _contains_echr_reference(text: str) -> bool:
         (
             "echr",
             "esljp",
+            "есљп",
             "hudoc",
             "strazbur",
             "strasbourg",
+            "european court of human rights",
             "evropski sud za ljudska prava",
             "evropska konvencija",
+            "evropsku konvenciju",
             "konvencija",
         ),
     )
@@ -296,6 +309,59 @@ def _build_envelope_clarifying_questions() -> list[str]:
         "Da li postoji broj predmeta / Posl. br. / Broj?",
         "Koji je tip akta: poziv, rešenje, presuda, obaveštenje ili zaključak?",
     ]
+
+
+def _infer_possible_convention_articles(question: str, facts: list[str]) -> list[str]:
+    text = f"{question} {' '.join(facts)}".lower()
+    articles: list[str] = []
+    if _contains_any(
+        text,
+        (
+            "suđenje u razumnom roku",
+            "sudjenje u razumnom roku",
+            "dugo trajanje postupka",
+            "dužina postupka",
+            "duzina postupka",
+            "reasonable time",
+            "length of proceedings",
+            "razumnom roku",
+        ),
+    ):
+        articles.extend(["Article 6", "Article 13"])
+    if _contains_any(text, ("pritvor", "lišenje slobode", "lisenje slobode")):
+        articles.append("Article 5")
+    if _contains_any(text, ("diskriminacija",)):
+        articles.append("Article 14")
+    unique: list[str] = []
+    for article in articles:
+        if article not in unique:
+            unique.append(article)
+    return unique
+
+
+def _build_echr_search_query(question: str, possible_articles: list[str]) -> str:
+    text = question.lower()
+    base_terms: list[str] = ["Serbia"]
+    if _contains_any(
+        text,
+        (
+            "suđenje u razumnom roku",
+            "sudjenje u razumnom roku",
+            "dugo trajanje postupka",
+            "dužina postupka",
+            "duzina postupka",
+            "razumnom roku",
+            "reasonable time",
+            "length of proceedings",
+        ),
+    ):
+        base_terms.extend(["length of proceedings", "reasonable time"])
+    if not any(term in " ".join(base_terms) for term in ("length of proceedings", "reasonable time")):
+        base_terms.extend(["European Court of Human Rights", "HUDOC"])
+    for article in possible_articles:
+        if article not in base_terms:
+            base_terms.append(article)
+    return " ".join(base_terms).strip()
 
 
 def _apply_contextual_overrides(decision: IntakeDecision, question: str) -> IntakeDecision:
@@ -353,12 +419,22 @@ def _apply_contextual_overrides(decision: IntakeDecision, question: str) -> Inta
         decision.clarifying_questions = _build_envelope_clarifying_questions()
 
     if mentions_echr:
-        if decision.intent in {INTENT_CLARIFICATION_NEEDED, INTENT_OUT_OF_SCOPE}:
-            decision.intent = INTENT_CASE_LAW_SEARCH
-        decision.needs_case_law_search = True
+        decision.intent = INTENT_ECHR_CASE_LAW_SEARCH
+        decision.legal_area = "ECHR / pravo na suđenje u razumnom roku"
+        decision.needs_case_law_search = False
+        decision.needs_regulation_lookup = False
         decision.needs_echr_check = True
         decision.needs_clarification = False
         decision.clarifying_questions = []
+        decision.echr_explicit_mention = True
+        decision.possible_convention_articles = _infer_possible_convention_articles(
+            question, decision.detected_facts
+        )
+        decision.search_query_for_echr = _build_echr_search_query(
+            question,
+            decision.possible_convention_articles,
+        )
+        decision.routing_decision = "run_echr_serbia_first_search"
         decision.confidence_score = max(decision.confidence_score, 0.84)
         decision.confidence_label = _confidence_label(decision.confidence_score)
 
@@ -372,6 +448,17 @@ def _apply_contextual_overrides(decision: IntakeDecision, question: str) -> Inta
 
 
 def _apply_low_confidence_guard(decision: IntakeDecision) -> IntakeDecision:
+    if decision.echr_explicit_mention:
+        decision.needs_clarification = False
+        if decision.intent == INTENT_CLARIFICATION_NEEDED:
+            decision.intent = INTENT_ECHR_CASE_LAW_SEARCH
+        if not decision.routing_decision:
+            decision.routing_decision = "run_echr_serbia_first_search"
+        if decision.confidence_score < 0.6:
+            decision.confidence_score = 0.9
+            decision.confidence_label = _confidence_label(decision.confidence_score)
+        decision.clarifying_questions = []
+        return decision
     if decision.confidence_score >= 0.6:
         return decision
     if decision.intent == INTENT_OUT_OF_SCOPE:
@@ -515,10 +602,19 @@ def _classify_with_openai(
         possible_regulations=possible_regulations[:6],
         possible_services=_safe_list_str(payload.get("possibleServices"))[:6]
         or _infer_possible_services(question, legal_area),
+        possible_convention_articles=_safe_list_str(payload.get("possibleConventionArticles"))[:6]
+        or _infer_possible_convention_articles(question, detected_facts),
         e_service_intent=str(payload.get("eServiceIntent", "")).strip() or _infer_e_service_intent(question),
+        echr_explicit_mention=_contains_echr_reference(question),
         clarifying_questions=clarifying_questions[:3],
         search_query_for_regulations=search_reg,
         search_query_for_case_law=search_case,
+        search_query_for_echr=str(payload.get("searchQueryForEchr", "")).strip()
+        or _build_echr_search_query(
+            question,
+            _safe_list_str(payload.get("possibleConventionArticles"))[:6]
+            or _infer_possible_convention_articles(question, detected_facts),
+        ),
         routing_decision=str(payload.get("routingDecision", "")).strip() or _default_routing(intent),
         reasoning_summary="OpenAI legal intake analiza.",
         intake_source="openai",
@@ -783,10 +879,16 @@ def _classify_with_heuristics(
         needs_temporal_validity_check=needs_regulation_lookup,
         possible_regulations=possible_regulations,
         possible_services=possible_services,
+        possible_convention_articles=_infer_possible_convention_articles(question, detected_facts),
         e_service_intent=e_service_intent,
+        echr_explicit_mention=mentions_echr,
         clarifying_questions=clarifying_questions[:3],
         search_query_for_regulations=search_query_reg,
         search_query_for_case_law=search_query_cases,
+        search_query_for_echr=_build_echr_search_query(
+            question,
+            _infer_possible_convention_articles(question, detected_facts),
+        ),
         routing_decision=_default_routing(intent),
         reasoning_summary=reasoning,
         intake_source="heuristic",

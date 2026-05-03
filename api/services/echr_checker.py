@@ -16,6 +16,7 @@ ECHR_EXPLICIT_TERMS = (
     "hudoc",
     "evropska konvencija",
     "evropsku konvenciju",
+    "konvencija",
     "ljudska prava",
 )
 
@@ -159,6 +160,34 @@ def _extract_articles(question: str, facts: list[str]) -> list[dict[str, Any]]:
     return rows
 
 
+def _build_echr_search_query(question: str, article_rows: list[dict[str, Any]]) -> str:
+    lowered = question.lower()
+    base_terms = ["Serbia"]
+    if any(
+        term in lowered
+        for term in (
+            "razumnom roku",
+            "dugo trajanje postupka",
+            "duzina postupka",
+            "dužina postupka",
+            "reasonable time",
+            "length of proceedings",
+        )
+    ):
+        base_terms.extend(["length of proceedings", "reasonable time"])
+    seen: set[str] = set()
+    for row in article_rows:
+        article = str(row.get("article", "")).strip()
+        if not article:
+            continue
+        token = article.replace("Protocol No. 1 ", "").strip()
+        if token in seen:
+            continue
+        seen.add(token)
+        base_terms.append(token)
+    return " ".join(base_terms)
+
+
 def _is_echr_relevant(question: str, facts: list[str], entities: list[dict[str, Any]]) -> tuple[bool, str]:
     lowered = question.lower()
     if any(term in lowered for term in ECHR_EXPLICIT_TERMS):
@@ -222,6 +251,7 @@ class EchrChecker:
             "hudocQueryGeneral": "",
             "otherEchrCasesFound": [],
             "echrAnalogyConfidence": "low",
+            "searchQueryForEchr": "",
             "topKMetrics": {
                 "serbiaHudocInitialResultsCount": 0,
                 "serbiaHudocRerankedResultsCount": 0,
@@ -254,6 +284,10 @@ class EchrChecker:
                     }
                 )
         base_result["possibleConventionArticles"] = possible_articles
+        base_result["searchQueryForEchr"] = _build_echr_search_query(
+            payload.user_question,
+            possible_articles,
+        )
 
         text_entities = [
             {"type": "DATE"} if re.search(r"(19|20)\d{2}", payload.user_question) else {}
@@ -274,7 +308,9 @@ class EchrChecker:
                 self._load_error or "echr-extractor nije dostupan u okruženju."
             )
             base_result["echrLimitations"] = (
-                "Provera prakse Evropskog suda za ljudska prava trenutno nije dostupna."
+                "Prepoznao sam da pitate za praksu Evropskog suda za ljudska prava o pravu na suđenje u "
+                "razumnom roku. Automatska HUDOC provera trenutno nije dostupna, ali ovo se tipično vezuje "
+                "za član 6 Evropske konvencije, a često i član 13 u vezi sa delotvornim pravnim lekom."
             )
             return base_result
 
@@ -364,7 +400,9 @@ class EchrChecker:
         except Exception as exc:  # pragma: no cover - external network path
             base_result["errors"].append(str(exc))
             base_result["echrLimitations"] = (
-                "Provera prakse Evropskog suda za ljudska prava trenutno nije dostupna."
+                "Prepoznao sam da pitate za praksu Evropskog suda za ljudska prava o pravu na suđenje u "
+                "razumnom roku. Automatska HUDOC provera trenutno nije dostupna, ali ovo se tipično vezuje "
+                "za član 6 Evropske konvencije, a često i član 13 u vezi sa delotvornim pravnim lekom."
             )
             return base_result
 
