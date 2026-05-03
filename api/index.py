@@ -59,6 +59,14 @@ class ChatRequest(BaseModel):
     sessionId: str | None = None
 
 
+class MiniFeedbackRequest(BaseModel):
+    interactionId: str
+    sessionId: str
+    helpfulness: str
+    problemTypes: list[str] = Field(default_factory=list)
+    freeComment: str = ""
+
+
 class UploadResponse(BaseModel):
     status: str
     filename: str

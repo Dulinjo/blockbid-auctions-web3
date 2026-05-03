@@ -281,10 +281,14 @@ def _build_openai_prompt(
         '  "clarifyingQuestions": [],\n'
         '  "needsRegulationLookup": false,\n'
         '  "needsCaseLawSearch": false,\n'
+        '  "needsEServicesGuidance": false,\n'
+        '  "needsEnvelopeClueAnalysis": false,\n'
         '  "needsEchrCheck": false,\n'
         '  "possibleRegulations": [],\n'
+        '  "possibleServices": [],\n'
         '  "searchQueryForRegulations": "",\n'
         '  "searchQueryForCaseLaw": "",\n'
+        '  "eServiceIntent": "",\n'
         '  "routingDecision": ""\n'
         "}\n"
     )
