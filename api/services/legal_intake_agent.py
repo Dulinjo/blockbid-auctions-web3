@@ -30,10 +30,14 @@ class IntakeDecision:
     missing_facts: list[str]
     needs_regulation_lookup: bool
     needs_case_law_search: bool
+    needs_e_services_guidance: bool
+    needs_envelope_clue_analysis: bool
     needs_echr_check: bool
     needs_clarification: bool
     needs_temporal_validity_check: bool
     possible_regulations: list[str]
+    possible_services: list[str]
+    e_service_intent: str
     clarifying_questions: list[str]
     search_query_for_regulations: str
     search_query_for_case_law: str
@@ -54,9 +58,13 @@ class IntakeDecision:
             "missingFacts": self.missing_facts,
             "needsRegulationLookup": self.needs_regulation_lookup,
             "needsCaseLawSearch": self.needs_case_law_search,
+            "needsEServicesGuidance": self.needs_e_services_guidance,
+            "needsEnvelopeClueAnalysis": self.needs_envelope_clue_analysis,
             "needsEchrCheck": self.needs_echr_check,
             "needsTemporalValidityCheck": self.needs_temporal_validity_check,
             "possibleRegulations": self.possible_regulations,
+            "possibleServices": self.possible_services,
+            "eServiceIntent": self.e_service_intent,
             "clarifyingQuestions": self.clarifying_questions,
             "searchQueryForRegulations": self.search_query_for_regulations,
             "searchQueryForCaseLaw": self.search_query_for_case_law,
@@ -192,6 +200,41 @@ def _infer_possible_regulations(question: str, legal_area: str) -> list[str]:
     return []
 
 
+def _infer_e_service_intent(question: str) -> str:
+    lowered = question.lower()
+    if _contains_any(lowered, ("euprava", "portal", "prijavim", "ulogujem", "tehnič", "tehnic")):
+        return "technical_support"
+    if _contains_any(
+        lowered,
+        ("koverta", "dopis", "rešenje", "resenje", "poziv", "broj predmeta", "posl. br", "upisnik"),
+    ):
+        return "received_letter_or_case_number"
+    if _contains_any(lowered, ("status predmeta", "gde da proverim", "kome da se obratim", "pisarnica")):
+        return "status_check_or_registry"
+    if _contains_any(lowered, ("nasilje", "preti", "bojim se", "hitno")):
+        return "urgent_safety"
+    return ""
+
+
+def _infer_possible_services(question: str, legal_area: str) -> list[str]:
+    lowered = question.lower()
+    services: list[str] = []
+    if _contains_any(lowered, ("umro", "preminuo", "ostavina", "nasledstvo")):
+        services.append("SRV-001")
+    if _contains_any(lowered, ("nasilje", "preti", "bojim se", "hitno")):
+        services.append("SRV-002")
+    if _contains_any(
+        lowered,
+        ("koverta", "broj predmeta", "posl. br", "upisnik", "status predmeta", "resenje", "rešenje"),
+    ):
+        services.append("SRV-003")
+    if _contains_any(lowered, ("euprava", "portal", "tehnič", "tehnic", "prijavim", "ulogujem")):
+        services.append("SRV-003")
+    if "radno pravo" in legal_area and "SRV-003" not in services:
+        services.append("SRV-003")
+    return services[:4]
+
+
 def _apply_low_confidence_guard(decision: IntakeDecision) -> IntakeDecision:
     if decision.confidence_score >= 0.6:
         return decision
@@ -309,10 +352,30 @@ def _classify_with_openai(
         missing_facts=[],
         needs_regulation_lookup=needs_regulation_lookup,
         needs_case_law_search=needs_case_law_search,
+        needs_e_services_guidance=_safe_bool(
+            payload.get("needsEServicesGuidance"),
+            _infer_e_service_intent(question) != "",
+        ),
+        needs_envelope_clue_analysis=_safe_bool(
+            payload.get("needsEnvelopeClueAnalysis"),
+            bool(
+                re.search(
+                    r"\b[apu]\s*[-]?\s*\d{1,6}\s*/\s*(19|20)\d{2}\b",
+                    question.lower(),
+                )
+                or any(
+                    token in question.lower()
+                    for token in ("koverta", "dopis", "posl. br", "broj predmeta", "rešenje", "resenje")
+                )
+            ),
+        ),
         needs_echr_check=needs_echr_check,
         needs_clarification=needs_clarification,
         needs_temporal_validity_check=needs_regulation_lookup,
         possible_regulations=possible_regulations[:6],
+        possible_services=_safe_list_str(payload.get("possibleServices"))[:6]
+        or _infer_possible_services(question, legal_area),
+        e_service_intent=str(payload.get("eServiceIntent", "")).strip() or _infer_e_service_intent(question),
         clarifying_questions=clarifying_questions[:3],
         search_query_for_regulations=search_reg,
         search_query_for_case_law=search_case,
@@ -442,6 +505,15 @@ def _classify_with_heuristics(
     search_query_cases = preprocessed.expanded_query if wants_case_law or intent == INTENT_COMBINED else ""
     legal_area = _infer_legal_area(text)
     possible_regulations = _infer_possible_regulations(question, legal_area)
+    e_service_intent = _infer_e_service_intent(question)
+    needs_e_services_guidance = e_service_intent != ""
+    needs_envelope_clue_analysis = bool(
+        re.search(r"\b[apu]\s*[-]?\s*\d{1,6}\s*/\s*(19|20)\d{2}\b", question.lower())
+        or any(
+            token in question.lower()
+            for token in ("koverta", "dopis", "posl. br", "broj predmeta", "rešenje", "resenje")
+        )
+    )
     needs_echr_check = intent in {
         INTENT_LEGAL_SITUATION_ANALYSIS,
         INTENT_CASE_LAW_SEARCH,
@@ -460,6 +532,8 @@ def _classify_with_heuristics(
         in {INTENT_REGULATION_LOOKUP, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
         needs_case_law_search=intent
         in {INTENT_CASE_LAW_SEARCH, INTENT_COMBINED, INTENT_LEGAL_SITUATION_ANALYSIS},
+        needs_e_services_guidance=needs_e_services_guidance,
+        needs_envelope_clue_analysis=needs_envelope_clue_analysis,
         needs_echr_check=needs_echr_check,
         needs_clarification=needs_clarification,
         needs_temporal_validity_check=intent
@@ -469,6 +543,8 @@ def _classify_with_heuristics(
             INTENT_LEGAL_SITUATION_ANALYSIS,
         },
         possible_regulations=possible_regulations,
+        possible_services=_infer_possible_services(question, legal_area),
+        e_service_intent=e_service_intent,
         clarifying_questions=clarifying_questions[:3],
         search_query_for_regulations=search_query_reg,
         search_query_for_case_law=search_query_cases,

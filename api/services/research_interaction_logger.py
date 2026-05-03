@@ -30,6 +30,7 @@ class ResearchInteractionLogger:
 
     def log(self, payload: dict[str, Any]) -> str:
         interaction_id = str(uuid4())
+        self.flags = get_feature_flags()
         if not self.flags.enable_research_logging:
             return interaction_id
 

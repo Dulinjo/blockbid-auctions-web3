@@ -19,6 +19,7 @@ from api.core.rag import rag_engine
 from api.services.case_law_retriever import CaseLawRetriever
 from api.services.config import get_feature_flags, get_retrieval_limits
 from api.services.echr_checker import search_echr_analogies
+from api.services.e_services_guide import e_services_guide
 from api.services.entity_recognition_and_linking import entity_service
 from api.services.legal_act_parser import LegalActParser
 from api.services.legal_intake_agent import (
@@ -106,6 +107,31 @@ class StatsResponse(BaseModel):
     total_courts: int
     top_courts: list[dict]
     total_law_gazette_items: int
+
+
+def _format_eservice_section(recommendations: list[dict]) -> str:
+    if not recommendations:
+        return ""
+    lines: list[str] = [
+        "Gde možete proveriti / šta možete uraditi online:",
+    ]
+    for item in recommendations[:2]:
+        name = str(item.get("serviceName") or "Servis")
+        institution = str(item.get("institution") or "Nadležna institucija")
+        url = str(item.get("serviceUrl") or "").strip()
+        instruction = str(item.get("readyInstruction") or "").strip()
+        prep = str(item.get("prepareBefore") or "").strip()
+        eid = str(item.get("needsEid") or "nije poznato")
+        fee = str(item.get("possibleFeeInfo") or "nije navedeno")
+        lines.append(f"- {name} ({institution})")
+        if instruction:
+            lines.append(f"  - Šta možete uraditi: {instruction}")
+        if prep:
+            lines.append(f"  - Pripremite: {prep}")
+        lines.append(f"  - eID: {eid}; taksa: {fee}")
+        if url:
+            lines.append(f"  - Link: {url}")
+    return "\n".join(lines)
 
 
 def _format_unexpected_upload_error(exc: Exception) -> str:

@@ -19,6 +19,7 @@ from api.services.query_preprocessor import preprocess_query
 from api.services.research_interaction_logger import interaction_logger
 from api.services.temporal_validity_checker import TemporalValidityChecker
 from api.services.case_law_retriever import rerank_and_limit_cases
+from api.services.e_services_guide import search_e_services_guide
 
 
 def test_intake_classifies_regulation_lookup() -> None:
@@ -62,6 +63,31 @@ def test_intake_situation_in_plain_language_maps_to_legal_situation(monkeypatch)
     assert decision.needs_case_law_search is True
     assert decision.needs_echr_check is True
     assert decision.possible_regulations
+
+
+def test_intake_envelope_clue_flow_flags(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_LEGAL_INTAKE_AGENT", "false")
+    question = "Stigla mi je koverta od suda i imam broj predmeta P 123/2024"
+    preprocessed = preprocess_query(question)
+    entities = extract_entities(preprocessed.normalized_query, source="user_query")
+    decision = classify_intent(question, preprocessed, entities)
+    assert decision.needs_e_services_guidance is True
+    assert decision.needs_envelope_clue_analysis is True
+
+
+def test_e_services_search_returns_status_case_service() -> None:
+    rows = search_e_services_guide(
+        {
+            "userQuestion": "Imam broj predmeta P 123/2024 kako da proverim status",
+            "detectedIntent": "LEGAL_SITUATION_ANALYSIS",
+            "legalArea": "opšte pravo",
+            "extractedEntities": [{"type": "CASE_NUMBER", "text": "P 123/2024"}],
+            "eServiceIntent": "status_check_or_registry",
+            "topK": 3,
+        }
+    )
+    assert rows["services"]
+    assert rows["services"][0]["serviceId"] == "SRV-003"
 
 
 def test_legal_act_parser_extracts_article_paragraph_and_point() -> None:

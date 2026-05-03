@@ -14,11 +14,16 @@ def _as_bool(name: str, default: bool) -> bool:
 @dataclass(slots=True)
 class FeatureFlags:
     enable_legal_intake_agent: bool
+    enable_openai_legal_intake: bool
     enable_query_preprocessor: bool
     enable_pis_on_demand_fetch: bool
     enable_legal_act_parser: bool
     enable_temporal_validity_check: bool
     enable_case_law_search: bool
+    enable_e_services_guide: bool
+    enable_admin_service_kb: bool
+    enable_envelope_clues: bool
+    enable_draft_eservices_in_dev: bool
     enable_research_logging: bool
     enable_post_answer_survey: bool
     enable_entity_recognition: bool
@@ -54,11 +59,16 @@ def _as_int(name: str, default: int, minimum: int = 1, maximum: int = 500) -> in
 def get_feature_flags() -> FeatureFlags:
     return FeatureFlags(
         enable_legal_intake_agent=_as_bool("ENABLE_LEGAL_INTAKE_AGENT", True),
+        enable_openai_legal_intake=_as_bool("ENABLE_OPENAI_LEGAL_INTAKE", True),
         enable_query_preprocessor=_as_bool("ENABLE_QUERY_PREPROCESSOR", True),
         enable_pis_on_demand_fetch=_as_bool("ENABLE_PIS_ON_DEMAND_FETCH", True),
         enable_legal_act_parser=_as_bool("ENABLE_LEGAL_ACT_PARSER", True),
         enable_temporal_validity_check=_as_bool("ENABLE_TEMPORAL_VALIDITY_CHECK", True),
         enable_case_law_search=_as_bool("ENABLE_CASE_LAW_SEARCH", True),
+        enable_e_services_guide=_as_bool("ENABLE_E_SERVICES_GUIDE", True),
+        enable_admin_service_kb=_as_bool("ENABLE_ADMIN_SERVICE_KB", True),
+        enable_envelope_clues=_as_bool("ENABLE_ENVELOPE_CLUES", True),
+        enable_draft_eservices_in_dev=_as_bool("ENABLE_DRAFT_ESERVICES_IN_DEV", True),
         enable_research_logging=_as_bool("ENABLE_RESEARCH_LOGGING", True),
         enable_post_answer_survey=_as_bool("ENABLE_POST_ANSWER_SURVEY", True),
         enable_entity_recognition=_as_bool("ENABLE_ENTITY_RECOGNITION", True),

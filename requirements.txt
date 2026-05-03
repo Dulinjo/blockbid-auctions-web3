@@ -11,3 +11,4 @@ odfpy
 pytest
 httpx
 echr-extractor
+openpyxl
