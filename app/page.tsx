@@ -18,8 +18,28 @@ type Message = {
   citations?: CitationItem[];
 };
 
+type SurveyDraft = {
+  usefulness: "yes" | "partial" | "no";
+  sourceRelevance: "yes" | "partial" | "no" | "not_checked";
+  clarity: "yes" | "partial" | "no";
+  wouldUseAgain: "yes" | "maybe" | "no";
+  freeComment: string;
+};
+
 export default function HomePage() {
   const [query, setQuery] = useState("");
+  const [sessionId] = useState(() => crypto.randomUUID());
+  const [lastInteractionId, setLastInteractionId] = useState<string | null>(null);
+  const [researchNotice, setResearchNotice] = useState<string | null>(null);
+  const [surveyEnabled, setSurveyEnabled] = useState(false);
+  const [surveySaved, setSurveySaved] = useState(false);
+  const [surveyDraft, setSurveyDraft] = useState<SurveyDraft>({
+    usefulness: "partial",
+    sourceRelevance: "not_checked",
+    clarity: "partial",
+    wouldUseAgain: "maybe",
+    freeComment: "",
+  });
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -79,7 +99,7 @@ export default function HomePage() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
+        body: JSON.stringify({ query: trimmed, sessionId }),
       });
 
       if (!response.ok) {
@@ -90,7 +110,15 @@ export default function HomePage() {
       const payload = (await response.json()) as {
         answer: string;
         citations: CitationItem[];
+        interactionId?: string;
+        surveyEnabled?: boolean;
+        researchNotice?: string;
       };
+
+      setLastInteractionId(payload.interactionId ?? null);
+      setSurveyEnabled(Boolean(payload.surveyEnabled));
+      setResearchNotice(payload.researchNotice ?? null);
+      setSurveySaved(false);
 
       setMessages((prev) => [
         ...prev,
@@ -115,6 +143,28 @@ export default function HomePage() {
       ]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const submitSurvey = async () => {
+    if (!lastInteractionId || surveySaved) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/survey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          interactionId: lastInteractionId,
+          ...surveyDraft,
+        }),
+      });
+      if (!response.ok) {
+        return;
+      }
+      setSurveySaved(true);
+    } catch {
+      // survey is optional; ignore errors
     }
   };
 
@@ -181,6 +231,104 @@ export default function HomePage() {
             onSubmit={handleSend}
             isLoading={isLoading}
           />
+          {surveyEnabled && lastInteractionId ? (
+            <section className="mt-4 rounded-xl border border-white/10 bg-slate-900/55 p-4">
+              <h3 className="text-sm font-semibold text-slate-100">Kratka anketa (opciono)</h3>
+              {researchNotice ? (
+                <p className="mt-2 text-xs text-slate-400">{researchNotice}</p>
+              ) : null}
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <label className="text-xs text-slate-300">
+                  Korisnost
+                  <select
+                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
+                    value={surveyDraft.usefulness}
+                    onChange={(event) =>
+                      setSurveyDraft((prev) => ({
+                        ...prev,
+                        usefulness: event.target.value as SurveyDraft["usefulness"],
+                      }))
+                    }
+                  >
+                    <option value="yes">Da</option>
+                    <option value="partial">Delimično</option>
+                    <option value="no">Ne</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-300">
+                  Relevantnost izvora
+                  <select
+                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
+                    value={surveyDraft.sourceRelevance}
+                    onChange={(event) =>
+                      setSurveyDraft((prev) => ({
+                        ...prev,
+                        sourceRelevance: event.target.value as SurveyDraft["sourceRelevance"],
+                      }))
+                    }
+                  >
+                    <option value="yes">Da</option>
+                    <option value="partial">Delimično</option>
+                    <option value="no">Ne</option>
+                    <option value="not_checked">Nisam proverio/la</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-300">
+                  Jasnoća odgovora
+                  <select
+                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
+                    value={surveyDraft.clarity}
+                    onChange={(event) =>
+                      setSurveyDraft((prev) => ({
+                        ...prev,
+                        clarity: event.target.value as SurveyDraft["clarity"],
+                      }))
+                    }
+                  >
+                    <option value="yes">Da</option>
+                    <option value="partial">Delimično</option>
+                    <option value="no">Ne</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-300">
+                  Koristio/la bih opet
+                  <select
+                    className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
+                    value={surveyDraft.wouldUseAgain}
+                    onChange={(event) =>
+                      setSurveyDraft((prev) => ({
+                        ...prev,
+                        wouldUseAgain: event.target.value as SurveyDraft["wouldUseAgain"],
+                      }))
+                    }
+                  >
+                    <option value="yes">Da</option>
+                    <option value="maybe">Možda</option>
+                    <option value="no">Ne</option>
+                  </select>
+                </label>
+              </div>
+              <label className="mt-3 block text-xs text-slate-300">
+                Slobodan komentar
+                <textarea
+                  className="mt-1 w-full rounded-md bg-slate-800 px-2 py-1 text-sm"
+                  rows={2}
+                  value={surveyDraft.freeComment}
+                  onChange={(event) =>
+                    setSurveyDraft((prev) => ({ ...prev, freeComment: event.target.value }))
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                onClick={submitSurvey}
+                disabled={surveySaved}
+                className="mt-3 rounded-md bg-cyan-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {surveySaved ? "Hvala na povratnoj informaciji" : "Pošalji anketu"}
+              </button>
+            </section>
+          ) : null}
         </div>
       </section>
     </main>

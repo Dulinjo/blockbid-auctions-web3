@@ -31,3 +31,21 @@ def test_upload_many_requires_admin_cookie() -> None:
     )
     assert response.status_code == 401
     assert "autentikacija" in response.json()["detail"].lower()
+
+
+def test_survey_endpoint_is_non_blocking() -> None:
+    response = client.post(
+        "/api/survey",
+        json={
+            "interactionId": "test-interaction",
+            "usefulness": "yes",
+            "sourceRelevance": "yes",
+            "clarity": "yes",
+            "wouldUseAgain": "yes",
+            "freeComment": "ok",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert "saved" in payload

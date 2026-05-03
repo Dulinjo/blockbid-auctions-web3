@@ -6,6 +6,7 @@ export type CitationItem = {
   excerpt: string;
   chunk?: number;
   case_number?: string;
+  decision_number?: string;
   court?: string;
 };
 
@@ -14,7 +15,8 @@ type CitationCardProps = {
 };
 
 export function CitationCard({ citation }: CitationCardProps) {
-  const { source, confidence, excerpt, chunk, case_number, court } = citation;
+  const { source, confidence, excerpt, chunk, case_number, decision_number, court } = citation;
+  const resolvedCaseNumber = case_number ?? decision_number ?? "";
   const percent = Math.round(confidence * 100);
   const confidenceTone =
     percent >= 80
@@ -28,10 +30,10 @@ export function CitationCard({ citation }: CitationCardProps) {
       <div className="mb-2 flex items-center justify-between">
         <div>
           <h4 className="font-semibold text-slate-100">{source}</h4>
-          {case_number || court ? (
+          {resolvedCaseNumber || court ? (
             <p className="text-xs text-slate-400">
-              {case_number ? `Broj odluke: ${case_number}` : ""}{" "}
-              {case_number && court ? "·" : ""} {court ? `Sud: ${court}` : ""}
+              {resolvedCaseNumber ? `Broj odluke: ${resolvedCaseNumber}` : ""}{" "}
+              {resolvedCaseNumber && court ? "·" : ""} {court ? `Sud: ${court}` : ""}
             </p>
           ) : null}
           {chunk ? <p className="text-xs text-slate-400">Segment #{chunk}</p> : null}

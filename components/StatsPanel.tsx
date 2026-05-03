@@ -8,7 +8,7 @@ type TopCourt = {
 };
 
 export type DashboardStats = {
-  total_documents: number;
+  total_decisions: number;
   total_chunks: number;
   total_courts: number;
   top_courts: TopCourt[];
@@ -16,7 +16,7 @@ export type DashboardStats = {
 };
 
 const EMPTY_STATS: DashboardStats = {
-  total_documents: 0,
+  total_decisions: 0,
   total_chunks: 0,
   total_courts: 0,
   top_courts: [],
@@ -39,7 +39,7 @@ export function StatsPanel({ stats, loading }: StatsPanelProps) {
           <FileStack className="h-4 w-4 text-cyan-300" />
         </div>
         <p className="mt-3 text-2xl font-semibold text-white">
-          {loading ? "..." : snapshot.total_documents}
+          {loading ? "..." : snapshot.total_decisions}
         </p>
       </article>
 

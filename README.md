@@ -16,6 +16,7 @@ LexVibe je profesionalna LegalTech RAG aplikacija sa Next.js frontendom i FastAP
 - Serbian normalization (ćirilica + latinica) pre embedovanja i upita
 - Profesionalan pravni ton odgovora na srpskom jeziku
 - Dark theme ("Midnight Blue & Slate") i glassmorphism UI elementi
+- Modularni legal workflow sa feature flag-ovima i fallback tokovima
 
 ## Struktura projekta
 
@@ -33,6 +34,17 @@ LexVibe je profesionalna LegalTech RAG aplikacija sa Next.js frontendom i FastAP
 │   └── core/
 │       ├── processor.py
 │       └── rag.py
+│   └── services/
+│       ├── legal_intake_agent.py
+│       ├── query_preprocessor.py
+│       ├── entity_recognition_and_linking.py
+│       ├── pis_on_demand_fetcher.py
+│       ├── legal_act_parser.py
+│       ├── temporal_validity_checker.py
+│       ├── case_law_retriever.py
+│       ├── norm_analyzer.py
+│       ├── research_interaction_logger.py
+│       └── post_answer_survey.py
 ├── components/
 │   ├── ChatInput.tsx
 │   ├── Sidebar.tsx
@@ -65,9 +77,20 @@ Obavezne promenljive:
 
 - `OPENAI_API_KEY`
 - `ADMIN_PASSWORD`
-- `SLUZBENI_GLASNIK_API_URL` (opciono)
+- `SLUZBENI_GLASNIK_API_URL` (opciono, on-demand propisi)
 - `SLUZBENI_GLASNIK_API_KEY` (opciono)
-- `SLUZBENI_GLASNIK_TIMEOUT` (opciono)
+
+Feature flagovi:
+
+- `ENABLE_LEGAL_INTAKE_AGENT=true`
+- `ENABLE_QUERY_PREPROCESSOR=true`
+- `ENABLE_PIS_ON_DEMAND_FETCH=true`
+- `ENABLE_LEGAL_ACT_PARSER=true`
+- `ENABLE_TEMPORAL_VALIDITY_CHECK=true`
+- `ENABLE_CASE_LAW_SEARCH=true`
+- `ENABLE_RESEARCH_LOGGING=true`
+- `ENABLE_POST_ANSWER_SURVEY=true`
+- `ENABLE_ENTITY_RECOGNITION=true`
 
 ## Pokretanje lokalno
 
@@ -118,12 +141,13 @@ poziva.
 
 ## API rute
 
-- `POST /api/chat` - pravni chat nad indeksiranom bazom
+- `POST /api/chat` - orkestrirani pravni chat (intake → preprocess → routing → retrieval)
 - `POST /api/upload` - upload PDF/DOCX/ODT dokumenta
 - `POST /api/upload-multiple` - paralelni upload više dokumenata
 - `POST /api/reindex` - kompletno reindeksiranje svih dokumenata
 - `GET /api/health` - health check
 - `GET /api/stats` - osnovne metrike baze (broj odluka, chunk-ova, sudova)
+- `POST /api/survey` - opciono čuvanje post-answer ankete
 
 ## Hibridna pretraga i metapodaci
 
@@ -134,6 +158,11 @@ Backend koristi kombinaciju:
 
 Rezultati se spajaju i po potrebi rerankuju (ako je konfigurisan transformer
 reranker servis), čime je bolje razumevanje pitanja korisnika i opisa situacije.
+
+Postojeći Serbian embedding pipeline nije zamenjen:
+
+- `rag_engine.answer(...)` ostaje primarni semantic retrieval i generativni odgovor.
+- Novi moduli dodaju routing, entity signal i fallback tokove preko postojećeg sistema.
 
 Svaki dokument dobija izvučene metapodatke iz naziva fajla:
 
@@ -152,6 +181,55 @@ relevantne propise:
 - `SLUZBENI_GLASNIK_API_KEY`
 
 Ako nisu podešeni, chat radi standardno nad internom bazom odluka.
+
+## Novi legal moduli i fallback ponašanje
+
+### `legal-intake-agent`
+- Klasifikuje intent (`REGULATION_LOOKUP`, `CASE_LAW_SEARCH`, `COMBINED...`, itd.).
+- Kod niske pouzdanosti vraća kratko pitanje za razjašnjenje.
+
+### `query-preprocessor`
+- Normalizuje upit, dodaje leme/POS (heuristički MVP), gradi `expandedQuery`.
+- Ako je isključen flag, koristi se originalni/normalizovani query.
+
+### `entity-recognition-and-linking`
+- Rule-based prepoznavanje: `LEGAL_ACT`, `COURT`, `CASE_NUMBER`, `ARTICLE_REFERENCE`, `DATE`.
+- Fallback: sistem radi i bez NER.
+
+### `pis-on-demand-fetcher`
+- On-demand pretraga i dohvat samo traženog propisa.
+- Lokalni cache po `actId` (bez masovnog crawl-ovanja).
+- Ako fetch padne: sistem nastavlja sa lokalnim retrieval-om i jasno navodi ograničenje.
+
+### `legal-act-parser`
+- Strukturira propis u čl./stav./tač. blokove.
+- Retrieval chunkovi su vezani za normativnu strukturu, ne samo broj karaktera.
+- Ako parser ne uspe: čuva raw tekst i `parsingConfidence=low`.
+
+### `temporal-validity-checker`
+- Izdvaja vremenski kontekst iz upita i procenjuje važenje na nivou propisa.
+- Ako nema norm-level podataka, to se eksplicitno navodi (bez izmišljanja).
+
+### `case-law-retriever`
+- Koristi postojeći `rag_engine.search_case_law` nad lokalnom bazom.
+- Vraća metadata polja (sud, broj predmeta, skor, razlike).
+
+### `norm-analyzer`
+- Spaja norme i praksu u strukturisan izlaz uz ograničenja i disclaimer.
+
+### `research-interaction-logger`
+- Non-blocking JSONL logging sa `entityMap`.
+- Ako upis padne, chat nastavlja normalno.
+
+### `post-answer-survey`
+- Opciona anketa posle odgovora; nezavisna od chat uspeha.
+
+## Open Data i metodološke reference
+
+- **SrpELTeC-gold**: referentni resurs za NER na srpskom (nije pravna baza znanja).
+- **SrpKor4Tagging**: resurs za POS/lematizaciju (integracija je ostavljena kroz proširive interfejse preprocessora).
+- **PIS / pravno-informacioni-sistem.rs**: primarni izvor propisa (on-demand fetch pristup).
+- **Nebojsa Vasiljević metodologija**: osnova za strukturno parsiranje pravnih tekstova.
 
 ## Napomena o admin zaštiti
 

@@ -20,6 +20,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from api.core.processor import (
     StoredDocument,
     SUPPORTED_EXTENSIONS,
+    extract_decision_metadata,
     get_runtime_data_dir,
     normalize_serbian_text,
 )
@@ -95,18 +96,12 @@ class SerbianRAGEngine:
         )
 
     def _derive_metadata_from_filename(self, filename: str) -> dict[str, str]:
-        stem = Path(filename).stem
-        tokens = [token for token in stem.split("-") if token]
+        parsed = extract_decision_metadata(filename)
         metadata = {
-            "court": "Nepoznati sud",
-            "decision_number": stem,
+            "court": parsed.court,
+            "decision_number": parsed.decision_number,
             "document_type": "odluka",
         }
-        if len(tokens) >= 4:
-            metadata["court"] = " ".join(tokens[:4]).replace("_", " ").title()
-            metadata["decision_number"] = "-".join(tokens[4:]) or stem
-        if "sud" in stem.lower() and metadata["court"] == "Nepoznati sud":
-            metadata["court"] = stem.replace("-", " ").title()
         return metadata
 
     def _extract_decision_metadata(self, filename: str) -> dict[str, str]:
@@ -206,11 +201,30 @@ class SerbianRAGEngine:
             reverse=True,
         )[:8]
 
+        total_law_gazette_items = 0
+        gazette_url = os.getenv("SLUZBENI_GLASNIK_API_URL", "").strip()
+        if gazette_url:
+            try:
+                req = urllib_request.Request(gazette_url, method="GET")
+                with urllib_request.urlopen(req, timeout=2.5) as response:
+                    body = response.read().decode("utf-8")
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    if isinstance(parsed.get("total"), int):
+                        total_law_gazette_items = int(parsed["total"])
+                    elif isinstance(parsed.get("count"), int):
+                        total_law_gazette_items = int(parsed["count"])
+                elif isinstance(parsed, list):
+                    total_law_gazette_items = len(parsed)
+            except Exception:
+                total_law_gazette_items = 0
+
         return {
-            "total_documents": int(manifest.get("total_documents", 0)),
+            "total_decisions": int(manifest.get("total_documents", 0)),
             "total_chunks": int(manifest.get("total_chunks", 0)),
-            "last_reindex_at": manifest.get("updated_at"),
+            "total_courts": len(court_counts),
             "top_courts": top_courts,
+            "total_law_gazette_items": total_law_gazette_items,
         }
 
     def _call_reranker(self, query: str, candidates: list[dict[str, Any]]) -> list[int]:
@@ -373,6 +387,56 @@ class SerbianRAGEngine:
             scores.append(score)
 
         return scores
+
+    def search_case_law(self, query: str, top_k: int = 6) -> list[dict[str, Any]]:
+        normalized_query = normalize_serbian_text(query)
+        store = self._load_store()
+        if not store:
+            return []
+        results = store.similarity_search_with_relevance_scores(normalized_query, k=max(top_k, 1))
+        if not results:
+            return []
+
+        documents = [item[0] for item in results]
+        vector_scores = [max(0.0, min(float(item[1]), 1.0)) for item in results]
+        bm25_scores = self._score_bm25(normalized_query, documents)
+        max_bm25 = max(bm25_scores) if bm25_scores else 0.0
+
+        rows: list[dict[str, Any]] = []
+        for idx, doc in enumerate(documents):
+            source = str(doc.metadata.get("source", ""))
+            parsed_meta = self._derive_metadata_from_filename(source or "Nepoznati dokument")
+            bm25 = (bm25_scores[idx] / max_bm25) if max_bm25 > 0 else 0.0
+            similarity_score = round(
+                (self.vector_weight * vector_scores[idx]) + (self.bm25_weight * bm25),
+                3,
+            )
+            rows.append(
+                {
+                    "caseId": f"{source}#{doc.metadata.get('chunk', idx + 1)}",
+                    "court": parsed_meta["court"],
+                    "caseNumber": parsed_meta["decision_number"],
+                    "decisionDate": "",
+                    "legalArea": "",
+                    "summary": doc.page_content[:360].strip(),
+                    "similarityScore": similarity_score,
+                    "whySimilar": (
+                        "Sadržaj dokumenta ima semantičku i leksičku sličnost "
+                        "sa korisničkim pitanjem."
+                    ),
+                    "importantDifferences": (
+                        "Potrebno je proveriti razlike u činjenicama i vremenskom "
+                        "okviru konkretnog predmeta."
+                    ),
+                    "sourceUrl": source,
+                    "citationLabel": (
+                        f"{parsed_meta['court']}, {parsed_meta['decision_number']}"
+                    ),
+                }
+            )
+
+        rows.sort(key=lambda item: float(item["similarityScore"]), reverse=True)
+        return rows[:top_k]
 
     def answer(self, query: str) -> dict[str, Any]:
         normalized_query = normalize_serbian_text(query)

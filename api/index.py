@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import time
+from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,8 +16,32 @@ from api.core.processor import (
     persist_upload,
 )
 from api.core.rag import rag_engine
+from api.services.case_law_retriever import CaseLawRetriever
+from api.services.config import get_feature_flags
+from api.services.entity_recognition_and_linking import entity_service
+from api.services.legal_act_parser import LegalActParser
+from api.services.legal_intake_agent import (
+    INTENT_CASE_LAW_SEARCH,
+    INTENT_CLARIFICATION_NEEDED,
+    INTENT_COMBINED,
+    INTENT_OUT_OF_SCOPE,
+    INTENT_REGULATION_LOOKUP,
+    classify_intent,
+)
+from api.services.norm_analyzer import NormAnalyzer
+from api.services.pis_on_demand_fetcher import PisOnDemandFetcher
+from api.services.post_answer_survey import save_post_answer_survey
+from api.services.query_preprocessor import preprocess_query
+from api.services.research_interaction_logger import interaction_logger
+from api.services.temporal_validity_checker import TemporalValidityChecker
 
 app = FastAPI(title="LexVibe API", version="1.0.0")
+
+RESEARCH_NOTICE = (
+    "Vaše pitanje, odgovor sistema i dobrovoljna ocena mogu biti sačuvani "
+    "u anonimizovanom obliku radi istraživanja i unapređenja sistema. "
+    "Ne unosite osetljive lične podatke."
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,6 +54,7 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     query: str = Field(min_length=3, max_length=3000)
+    sessionId: str | None = None
 
 
 class UploadResponse(BaseModel):
@@ -51,6 +78,25 @@ class ReindexResponse(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     citations: list[dict]
+    structured: dict | None = None
+    interactionId: str | None = None
+    surveyEnabled: bool = False
+    researchNotice: str | None = None
+
+
+class SurveyRequest(BaseModel):
+    interactionId: str
+    usefulness: str
+    sourceRelevance: str
+    clarity: str
+    wouldUseAgain: str
+    freeComment: str = ""
+
+
+class SurveyResponse(BaseModel):
+    status: str
+    saved: bool
+    surveyId: str | None = None
 
 
 class StatsResponse(BaseModel):
@@ -85,14 +131,332 @@ async def stats() -> StatsResponse:
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(payload: ChatRequest) -> ChatResponse:
+    started = time.perf_counter()
+    session_id = payload.sessionId or str(uuid4())
+    flags = get_feature_flags()
+
+    preprocessed = preprocess_query(payload.query)
+    query_for_retrieval = preprocessed.expanded_query or preprocessed.normalized_query
+    query_entities = entity_service.extract(preprocessed.normalized_query, source="user_query")
+    intake = classify_intent(payload.query, preprocessed, query_entities)
+
+    if intake.intent == INTENT_CLARIFICATION_NEEDED:
+        answer = (
+            intake.clarifying_questions[0]
+            if intake.clarifying_questions
+            else (
+                "Da li želite da analiziram pravnu situaciju, pronađem propis, "
+                "sudsku praksu ili kombinovani odgovor?"
+            )
+        )
+        interaction_id = interaction_logger.log(
+            {
+                "sessionId": session_id,
+                "originalQuestion": payload.query,
+                "normalizedQuestion": preprocessed.normalized_query,
+                "detectedIntent": intake.intent,
+                "confidenceScore": intake.confidence_score,
+                "legalArea": intake.legal_area,
+                "whetherClarificationAsked": True,
+                "usedRegulationLookup": False,
+                "usedCaseLawSearch": False,
+                "usedPISFetch": False,
+                "cacheHit": False,
+                "usedLegalActParser": False,
+                "usedTemporalValidityChecker": False,
+                "retrievedRegulations": [],
+                "retrievedCases": [],
+                "finalAnswer": answer,
+                "modelUsed": "routing-only",
+                "latencyMs": int((time.perf_counter() - started) * 1000),
+                "errors": [],
+                "entityMap": entity_service.build_entity_map(query_entities, [], []),
+            }
+        )
+        return ChatResponse(
+            answer=answer,
+            citations=[],
+            structured={"intent": intake.intent, "intake": intake.to_json()},
+            interactionId=interaction_id,
+            surveyEnabled=flags.enable_post_answer_survey,
+            researchNotice=RESEARCH_NOTICE,
+        )
+
+    if intake.intent == INTENT_OUT_OF_SCOPE:
+        answer = (
+            "Pitanje deluje van pravnog domena ove aplikacije. "
+            "Postavite pravno pitanje ili navedite pravni kontekst."
+        )
+        interaction_id = interaction_logger.log(
+            {
+                "sessionId": session_id,
+                "originalQuestion": payload.query,
+                "normalizedQuestion": preprocessed.normalized_query,
+                "detectedIntent": intake.intent,
+                "confidenceScore": intake.confidence_score,
+                "legalArea": intake.legal_area,
+                "whetherClarificationAsked": False,
+                "usedRegulationLookup": False,
+                "usedCaseLawSearch": False,
+                "usedPISFetch": False,
+                "cacheHit": False,
+                "usedLegalActParser": False,
+                "usedTemporalValidityChecker": False,
+                "retrievedRegulations": [],
+                "retrievedCases": [],
+                "finalAnswer": answer,
+                "modelUsed": "routing-only",
+                "latencyMs": int((time.perf_counter() - started) * 1000),
+                "errors": [],
+                "entityMap": entity_service.build_entity_map(query_entities, [], []),
+            }
+        )
+        return ChatResponse(
+            answer=answer,
+            citations=[],
+            structured={"intent": intake.intent, "intake": intake.to_json()},
+            interactionId=interaction_id,
+            surveyEnabled=flags.enable_post_answer_survey,
+            researchNotice=RESEARCH_NOTICE,
+        )
+
+    pis_fetcher = PisOnDemandFetcher()
+    legal_parser = LegalActParser()
+    temporal_checker = TemporalValidityChecker()
+    case_law_retriever = CaseLawRetriever()
+    norm_analyzer = NormAnalyzer()
+
+    regulation_rows: list[dict] = []
+    regulation_entities: list[dict] = []
+    case_rows: list[dict] = []
+    case_entities: list[dict] = []
+    citations: list[dict] = []
+    cache_hit = False
+    used_pis_fetch = False
+    errors: list[str] = []
+
     try:
-        result = rag_engine.answer(payload.query)
-        return ChatResponse(**result)
+        should_use_regulation = intake.intent in {
+            INTENT_REGULATION_LOOKUP,
+            INTENT_COMBINED,
+        } or intake.needs_regulation_lookup
+        if should_use_regulation:
+            hit = pis_fetcher.search_relevant_act(intake.search_query_for_regulations or query_for_retrieval)
+            if hit:
+                used_pis_fetch = True
+                cached = pis_fetcher.get_cached_act_if_fresh(hit["act_id"])
+                if cached:
+                    cache_hit = True
+                    fetched_payload = {
+                        "actId": cached.act_id,
+                        "title": cached.title,
+                        "sourceUrl": cached.source_url,
+                        "validFrom": cached.valid_from,
+                        "validTo": cached.valid_to,
+                        "status": cached.status,
+                        "validityConfidence": cached.validity_confidence,
+                        "rawText": cached.raw_text,
+                        "rawHtml": cached.raw_html,
+                        **cached.metadata,
+                    }
+                else:
+                    fetched = pis_fetcher.fetch_act_by_url_or_id(hit["act_id"], hit["source_url"])
+                    fetched_payload = (
+                        {
+                            "actId": fetched.act_id,
+                            "title": fetched.title,
+                            "sourceUrl": fetched.source_url,
+                            "validFrom": fetched.valid_from,
+                            "validTo": fetched.valid_to,
+                            "status": fetched.status,
+                            "validityConfidence": fetched.validity_confidence,
+                            "rawText": fetched.raw_text,
+                            "rawHtml": fetched.raw_html,
+                            **fetched.metadata,
+                        }
+                        if fetched
+                        else None
+                    )
+                if fetched_payload:
+                    parsed = (
+                        legal_parser.parse(fetched_payload)
+                        if flags.enable_legal_act_parser
+                        else {
+                            "actTitle": fetched_payload.get("title", ""),
+                            "sourceUrl": fetched_payload.get("sourceUrl", ""),
+                            "normChunks": [],
+                            "parsingConfidence": "low",
+                            "validFrom": fetched_payload.get("validFrom", ""),
+                            "validTo": fetched_payload.get("validTo", ""),
+                            "status": fetched_payload.get("status", "unknown"),
+                            "validityConfidence": fetched_payload.get("validityConfidence", "low"),
+                        }
+                    )
+                    validity = temporal_checker.check(payload.query, parsed)
+                    chunks = parsed.get("normChunks", []) or []
+                    regulation_rows = [
+                        {
+                            "citationLabel": chunk.get("citation_label", ""),
+                            "sourceUrl": chunk.get("source_url", parsed.get("sourceUrl", "")),
+                            "text": chunk.get("norm_text", ""),
+                            "validityStatus": validity.get("validity_status", parsed.get("status", "unknown")),
+                            "validityConfidence": validity.get(
+                                "validity_confidence",
+                                chunk.get("validity_confidence", "low"),
+                            ),
+                        }
+                        for chunk in chunks[:6]
+                    ]
+                    if not regulation_rows:
+                        regulation_rows = [
+                            {
+                                "citationLabel": parsed.get("actTitle", ""),
+                                "sourceUrl": parsed.get("sourceUrl", ""),
+                                "text": fetched_payload.get("rawText", "")[:800],
+                                "validityStatus": validity.get("validity_status", parsed.get("status", "unknown")),
+                                "validityConfidence": validity.get("validity_confidence", "low"),
+                            }
+                        ]
+                    regulation_entities = entity_service.extract(
+                        "\n".join(row.get("text", "") for row in regulation_rows), source="regulation"
+                    )
+                    citations.extend(
+                        {
+                            "source": row.get("sourceUrl", ""),
+                            "chunk": idx + 1,
+                            "confidence": 0.75,
+                            "vector_score": 0.0,
+                            "bm25_score": 0.0,
+                            "hybrid_score": 0.0,
+                            "court": "",
+                            "decision_number": row.get("citationLabel", ""),
+                            "excerpt": row.get("text", "")[:260],
+                        }
+                        for idx, row in enumerate(regulation_rows)
+                    )
+
+        should_use_case_law = intake.intent in {
+            INTENT_CASE_LAW_SEARCH,
+            INTENT_COMBINED,
+        } or intake.needs_case_law_search
+        if should_use_case_law:
+            case_rows = case_law_retriever.search(
+                intake.search_query_for_case_law or query_for_retrieval,
+                extracted_facts=intake.detected_facts,
+                top_k=5,
+            )
+            case_entities = entity_service.extract(
+                "\n".join(case.get("summary", "") for case in case_rows), source="case_law"
+            )
+            citations.extend(
+                {
+                    "source": case.get("sourceUrl", ""),
+                    "chunk": 0,
+                    "confidence": case.get("similarityScore", 0.0),
+                    "vector_score": case.get("similarityScore", 0.0),
+                    "bm25_score": 0.0,
+                    "hybrid_score": case.get("similarityScore", 0.0),
+                    "court": case.get("court", ""),
+                    "decision_number": case.get("caseNumber", ""),
+                    "excerpt": case.get("summary", "")[:260],
+                }
+                for case in case_rows
+            )
+
+        if not regulation_rows and not case_rows:
+            fallback = rag_engine.answer(query_for_retrieval)
+            answer = fallback["answer"]
+            citations = fallback.get("citations", [])
+            structured = {
+                "intent": intake.intent,
+                "intake": intake.to_json(),
+                "fallbackUsed": True,
+            }
+        else:
+            analysis = norm_analyzer.analyze(
+                user_summary=intake.user_situation_summary,
+                regulation_rows=regulation_rows,
+                case_rows=case_rows,
+            )
+            disclaimer = (
+                "Odgovor je informativan i ne predstavlja zamenu za pravni savet advokata."
+            )
+            answer = f"{analysis.short_answer}\n\n{analysis.analysis}\n\n{disclaimer}"
+            structured = {
+                "intent": intake.intent,
+                "intake": intake.to_json(),
+                "shortAnswer": analysis.short_answer,
+                "relevantRegulations": analysis.regulation_rows,
+                "similarCases": analysis.case_rows,
+                "analysis": analysis.analysis,
+                "limitations": analysis.limitations,
+            }
+
+        interaction_id = interaction_logger.log(
+            {
+                "sessionId": session_id,
+                "originalQuestion": payload.query,
+                "normalizedQuestion": preprocessed.normalized_query,
+                "detectedIntent": intake.intent,
+                "confidenceScore": intake.confidence_score,
+                "legalArea": intake.legal_area,
+                "whetherClarificationAsked": False,
+                "usedRegulationLookup": bool(regulation_rows),
+                "usedCaseLawSearch": bool(case_rows),
+                "usedPISFetch": used_pis_fetch,
+                "cacheHit": cache_hit,
+                "usedLegalActParser": flags.enable_legal_act_parser,
+                "usedTemporalValidityChecker": flags.enable_temporal_validity_check,
+                "retrievedRegulations": regulation_rows,
+                "retrievedCases": case_rows,
+                "finalAnswer": answer,
+                "modelUsed": "gpt-4o-mini",
+                "latencyMs": int((time.perf_counter() - started) * 1000),
+                "errors": errors,
+                "entityMap": entity_service.build_entity_map(
+                    query_entities,
+                    regulation_entities,
+                    case_entities,
+                ),
+            }
+        )
+
+        return ChatResponse(
+            answer=answer,
+            citations=citations[:8],
+            structured=structured,
+            interactionId=interaction_id,
+            surveyEnabled=flags.enable_post_answer_survey,
+            researchNotice=RESEARCH_NOTICE,
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail=f"Greška pri obradi upita: {exc}",
         ) from exc
+
+
+@app.post("/api/survey", response_model=SurveyResponse)
+async def save_survey(payload: SurveyRequest) -> SurveyResponse:
+    try:
+        result = save_post_answer_survey(
+            {
+                "interactionId": payload.interactionId,
+                "usefulness": payload.usefulness,
+                "sourceRelevance": payload.sourceRelevance,
+                "clarity": payload.clarity,
+                "wouldUseAgain": payload.wouldUseAgain,
+                "freeComment": payload.freeComment,
+            }
+        )
+        return SurveyResponse(
+            status="ok",
+            saved=bool(result.get("saved")),
+            surveyId=result.get("surveyId"),
+        )
+    except Exception:
+        # Survey is optional and must not break chat flow.
+        return SurveyResponse(status="ok", saved=False, surveyId=None)
 
 
 @app.post("/api/upload", response_model=UploadResponse)
